@@ -1,0 +1,25 @@
+# Resultados del backtest
+
+Fuente de datos: SINTÉTICO (demo, NO son datos reales de mercado)
+
+Ticker: QQQ | Intervalo: 5m | Rango: 2026-02-09 09:30:00-05:00 -> 2026-08-07 15:55:00-04:00
+
+| Métrica | Valor |
+|---|---|
+| num_trades | 57 |
+| starting_equity | 10000.0 |
+| ending_equity | 8229.08 |
+| total_return_pct | -17.71 |
+| cagr_pct | -32.67 |
+| win_rate_pct | 40.35 |
+| profit_factor | 0.47 |
+| avg_win | 68.77 |
+| avg_loss | -98.61 |
+| expectancy_R | -0.337 |
+| avg_r_multiple | -0.337 |
+| max_drawdown_pct | -17.71 |
+| sharpe_ratio | -3.498 |
+| sortino_ratio | -4.206 |
+| avg_trade_duration_min | 34.9 |
+| long_trades | 34 |
+| short_trades | 23 |

@@ -1,0 +1,38 @@
+# Configuración de la estrategia: NY Opening Range Breakout + Absorción CVD (continuación)
+#
+# Ver README.md para la explicación completa de cada regla.
+
+instrument:
+  ticker: "QQQ"          # Ticker a operar. QQQ = ETF Nasdaq-100 (horario regular NY).
+                          # Para futuros (NQ=F) poner session_only: false.
+  timezone: "America/New_York"
+
+session:
+  open: "09:30"
+  close: "16:00"
+  session_only: true      # true = descarta velas fuera de 09:30-16:00 (correcto para QQQ/acciones)
+
+opening_range:
+  minutes: 15              # Primeros N minutos de la sesión NY que marcan el high/low
+
+absorption:
+  # Búsqueda de pivotes (fractales de 3 velas) dentro del pullback tras el rompimiento
+  pivot_lookback: 1        # velas a cada lado para confirmar un pivote (3 velas totales)
+  max_bars_after_breakout: null   # null = buscar hasta el cierre de sesión; o un entero de velas
+  invalidate_on_full_retrace: true  # cancela el setup si el precio regresa a cruzar el otro lado del rango
+
+risk:
+  starting_equity: 10000
+  risk_per_trade_pct: 1.0     # % de equity arriesgado por trade (define el tamaño de posición)
+  sl_buffer_pct: 0.03         # buffer de seguridad debajo/encima del swing usado como SL (en % del precio)
+  max_trades_per_day: 1
+  slippage_bps: 1.0           # slippage estimado en entrada/salida, en basis points
+  commission_per_trade: 0.0
+
+swings:
+  fractal_window: 3           # ventana (velas a cada lado) para detectar swing highs/lows históricos (SL/TP)
+  lookback_days: 5            # días previos + día actual usados para buscar niveles de SL/TP
+
+data:
+  interval: "5m"               # granularidad de las velas (recomendado 1m o 5m para que el CVD tenga sentido)
+  months_back: 6

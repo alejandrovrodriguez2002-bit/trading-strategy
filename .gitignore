@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# datos de mercado reales (pueden ser grandes / con licencia) — no versionar
+data/*.csv
+!data/.gitkeep
