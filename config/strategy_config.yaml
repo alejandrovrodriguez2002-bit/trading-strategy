@@ -9,8 +9,8 @@ instrument:
 
 session:
   open: "09:30"
-  close: "16:00"
-  session_only: true      # true = descarta velas fuera de 09:30-16:00 (correcto para QQQ/acciones)
+  close: "11:30"          # solo se opera dentro de las primeras 2 horas de la apertura de NY
+  session_only: true      # true = descarta velas fuera del rango open-close (por hora local, cada día)
 
 opening_range:
   minutes: 15              # Primeros N minutos de la sesión NY que marcan el high/low

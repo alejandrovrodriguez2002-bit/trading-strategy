@@ -33,6 +33,14 @@ basada en swings (highs/lows) más cercanos.
    python scripts/run_backtest.py --csv data/tu_archivo.csv
    ```
 
+   **Nota**: `config/strategy_config.yaml` está configurado para operar
+   solo dentro de las **primeras 2 horas de la apertura de NY (09:30–11:30
+   ET)** — ajusta `session.close` si tu CSV cubre un rango distinto. El
+   motor no necesita el día completo: solo usa las velas dentro de ese
+   rango para el OR, el rompimiento, la confirmación de absorción y el
+   cierre de posición (si no se toca SL/TP antes de las 11:30, se cierra
+   ahí como fin de la ventana operable).
+
 2. **CVD aproximado, no de nivel 2 real**: no tenemos datos de tick/bid-ask,
    así que el volumen delta se aproxima por vela con la fórmula estándar
    `delta = volume * ((close-low)-(high-close)) / (high-low)`. Es la
