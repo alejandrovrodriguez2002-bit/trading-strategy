@@ -1,0 +1,14 @@
+# Cabeceras de seguridad para hosting estático (Netlify y Cloudflare Pages
+# leen este archivo automáticamente; para Vercel usa vercel.json).
+#
+# El sitio no tiene backend, formularios ni JavaScript propio: todo el
+# "pedido" pasa por enlaces a WhatsApp. Por eso el CSP puede ser muy
+# estricto (sin scripts de ningún tipo).
+
+/*
+  Content-Security-Policy: default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
