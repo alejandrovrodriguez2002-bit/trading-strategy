@@ -1,0 +1,276 @@
+//@version=5
+// =============================================================================
+// NY Opening Range Breakout + Absorción CVD (continuación)
+// Traducción 1:1 de la lógica en src/strategy.py (ver README.md del repo).
+//
+// Cómo usar:
+//   1) Pega este script en el Pine Editor de TradingView (Pine Editor -> New ->
+//      abrir este archivo o pegar el contenido).
+//   2) Ábrelo en un gráfico de QQQ (o NQ1!, etc.) en timeframe de 1 o 5 minutos.
+//      TradingView usa SU PROPIO historial de precios: no hace falta exportar
+//      ni importar ningún dato.
+//   3) Pestaña "Strategy Tester" (Tester de estrategias) -> pestaña "Overview"
+//      / "Performance Summary": ahí ya vienen Net Profit, Win Rate, Profit
+//      Factor, Max Drawdown, Sharpe Ratio y Sortino Ratio calculados de forma
+//      nativa por TradingView — no hace falta reprogramarlos aquí.
+//   4) Ajusta el input "Sesión NY" si quieres operar toda la sesión (09:30-16:00)
+//      en vez de solo las primeras 2 horas (default: 09:30-11:30).
+//
+// Notas importantes:
+//   - El CVD es aproximado por vela (no hay tick data en TradingView estándar):
+//     delta = volume * ((close-low)-(high-close)) / (high-low). Misma fórmula
+//     que usa src/cvd.py en la versión Python.
+//   - Los pivotes de absorción (2 mínimos o 2 máximos consecutivos que
+//     divergen con el CVD) usan ta.pivotlow/ta.pivothigh, que confirman con
+//     el mismo retraso (rightbars) que la versión Python — sin look-ahead.
+//   - SL = swing más cercano; TP = segundo swing más cercano (se salta el
+//     primero), igual que en el motor Python.
+// =============================================================================
+strategy("NY ORB + CVD Absorción (continuación)", shorttitle="ORB+CVD",
+     overlay=true, pyramiding=0,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     initial_capital=10000, currency=currency.USD,
+     commission_type=strategy.commission.percent, commission_value=0.0,
+     slippage=1)
+
+// ---------------- Inputs ----------------
+sessionInput    = input.session("0930-1130", "Sesión NY (HHMM-HHMM, hora del exchange)", group="Sesión")
+orMinutes       = input.int(15, "Minutos del Opening Range", minval=1, group="Opening Range")
+
+pivotLR         = input.int(1, "Pivote absorción: velas izq/der para confirmar", minval=1, group="Absorción")
+maxBarsSearch   = input.int(0, "Máx. velas tras rompimiento para buscar absorción (0 = sin límite)", minval=0, group="Absorción")
+invalidateRetr  = input.bool(true, "Invalidar si el precio retrocede al otro lado del OR", group="Absorción")
+
+swingLR         = input.int(3, "Swing SL/TP: velas izq/der", minval=1, group="Riesgo")
+swingLookbackD  = input.int(5, "Días hacia atrás para buscar swings de SL/TP", minval=1, group="Riesgo")
+slBufferPct     = input.float(0.03, "Buffer de SL (%)", step=0.01, group="Riesgo")
+riskPct         = input.float(1.0, "Riesgo por trade (% del equity)", step=0.1, group="Riesgo")
+maxTradesDay    = input.int(1, "Máx. trades por día", minval=1, group="Riesgo")
+
+// ---------------- Sesión / nuevo día ----------------
+sessTime   = time(timeframe.period, sessionInput)
+inSession  = not na(sessTime)
+newSession = inSession and na(sessTime[1])
+wasInSess  = inSession[1]
+sessEnded  = wasInSess and not inSession
+
+tfMinutes   = timeframe.in_seconds(timeframe.period) / 60
+orBarsCount = math.max(1, math.round(orMinutes / tfMinutes))
+lookbackBars = math.round(swingLookbackD * 390 / tfMinutes)  // ~390 min/día de sesión regular
+
+// ---------------- CVD (delta acumulado, reinicia cada sesión) ----------------
+barDelta = (high - low) > 0 ? volume * ((close - low) - (high - close)) / (high - low) : 0.0
+var float cvd = na
+cvd := newSession ? barDelta : nz(cvd) + barDelta
+
+// ---------------- Estado del día (Opening Range + rompimiento + absorción) ----------------
+var float orHigh          = na
+var float orLow           = na
+var int   barsSinceStart  = na
+var bool  orDone          = false
+var bool  daySkipped      = false
+var bool  breakoutOn      = false
+var string breakoutDir    = ""
+var int   breakoutBarIdx  = na
+var bool  invalidated     = false
+var bool  haveFirstPivot  = false
+var float lastPivotPrice  = na
+var float lastPivotCVD    = na
+var int   tradesToday     = 0
+
+if newSession
+    orHigh         := high
+    orLow          := low
+    barsSinceStart := 1
+    orDone         := false
+    daySkipped     := false
+    breakoutOn     := false
+    breakoutDir    := ""
+    invalidated    := false
+    haveFirstPivot := false
+    tradesToday    := 0
+else if inSession
+    barsSinceStart := nz(barsSinceStart) + 1
+
+if inSession and barsSinceStart <= orBarsCount
+    orHigh := math.max(orHigh, high)
+    orLow  := math.min(orLow, low)
+    if barsSinceStart == orBarsCount
+        orDone := true
+
+// ---------------- Búsqueda de rompimiento (define el sesgo) ----------------
+if inSession and orDone and not breakoutOn and not daySkipped and tradesToday < maxTradesDay
+    hitHigh = high >= orHigh
+    hitLow  = low  <= orLow
+    if hitHigh and hitLow
+        daySkipped := true          // vela ambigua -> se descarta el setup del día
+    else if hitHigh
+        breakoutOn     := true
+        breakoutDir    := "long"
+        breakoutBarIdx := bar_index
+    else if hitLow
+        breakoutOn     := true
+        breakoutDir    := "short"
+        breakoutBarIdx := bar_index
+
+// ---------------- Absorción (2 pivotes que divergen con el CVD) ----------------
+bool doEnterLong  = false
+bool doEnterShort = false
+
+if inSession and breakoutOn and not invalidated and strategy.position_size == 0 and bar_index > breakoutBarIdx
+    if maxBarsSearch > 0 and (bar_index - breakoutBarIdx) > maxBarsSearch
+        invalidated := true
+
+    if invalidateRetr and not invalidated
+        if breakoutDir == "long" and low <= orLow
+            invalidated := true
+        if breakoutDir == "short" and high >= orHigh
+            invalidated := true
+
+    if not invalidated
+        if breakoutDir == "long"
+            pl = ta.pivotlow(low, pivotLR, pivotLR)
+            if not na(pl) and (bar_index - pivotLR) > breakoutBarIdx
+                pivotCVDVal = cvd[pivotLR]
+                if haveFirstPivot
+                    if pl > lastPivotPrice and pivotCVDVal < lastPivotCVD
+                        doEnterLong := true
+                    lastPivotPrice := pl
+                    lastPivotCVD   := pivotCVDVal
+                else
+                    lastPivotPrice := pl
+                    lastPivotCVD   := pivotCVDVal
+                    haveFirstPivot := true
+        else
+            ph = ta.pivothigh(high, pivotLR, pivotLR)
+            if not na(ph) and (bar_index - pivotLR) > breakoutBarIdx
+                pivotCVDVal = cvd[pivotLR]
+                if haveFirstPivot
+                    if ph < lastPivotPrice and pivotCVDVal > lastPivotCVD
+                        doEnterShort := true
+                    lastPivotPrice := ph
+                    lastPivotCVD   := pivotCVDVal
+                else
+                    lastPivotPrice := ph
+                    lastPivotCVD   := pivotCVDVal
+                    haveFirstPivot := true
+
+// ---------------- Swings históricos (para SL / TP) ----------------
+var swHighPrices = array.new_float()
+var swHighBarIdx = array.new_int()
+var swLowPrices  = array.new_float()
+var swLowBarIdx  = array.new_int()
+
+sph = ta.pivothigh(high, swingLR, swingLR)
+if not na(sph)
+    array.push(swHighPrices, sph)
+    array.push(swHighBarIdx, bar_index - swingLR)
+spl = ta.pivotlow(low, swingLR, swingLR)
+if not na(spl)
+    array.push(swLowPrices, spl)
+    array.push(swLowBarIdx, bar_index - swingLR)
+
+maxSwingPoints = 1000
+while array.size(swHighPrices) > maxSwingPoints
+    array.shift(swHighPrices)
+    array.shift(swHighBarIdx)
+while array.size(swLowPrices) > maxSwingPoints
+    array.shift(swLowPrices)
+    array.shift(swLowBarIdx)
+
+// SL = swing más cercano en contra; TP = SEGUNDO swing más cercano a favor
+f_slTpLong(refPrice) =>
+    float nearestBelow = na
+    for i = array.size(swLowPrices) - 1 to 0
+        p    = array.get(swLowPrices, i)
+        bidx = array.get(swLowBarIdx, i)
+        if (bar_index - bidx) <= lookbackBars and p < refPrice
+            if na(nearestBelow) or p > nearestBelow
+                nearestBelow := p
+    above = array.new_float()
+    for i = 0 to array.size(swHighPrices) - 1
+        p    = array.get(swHighPrices, i)
+        bidx = array.get(swHighBarIdx, i)
+        if (bar_index - bidx) <= lookbackBars and p > refPrice
+            array.push(above, p)
+    array.sort(above, order.ascending)
+    float sl = na(nearestBelow) ? na : nearestBelow * (1 - slBufferPct / 100)
+    float tp = na
+    if array.size(above) >= 2
+        tp := array.get(above, 1)
+    else if array.size(above) == 1
+        tp := array.get(above, 0)
+    if na(tp) and not na(sl)
+        tp := refPrice + 2 * (refPrice - sl)
+    [sl, tp]
+
+f_slTpShort(refPrice) =>
+    float nearestAbove = na
+    for i = array.size(swHighPrices) - 1 to 0
+        p    = array.get(swHighPrices, i)
+        bidx = array.get(swHighBarIdx, i)
+        if (bar_index - bidx) <= lookbackBars and p > refPrice
+            if na(nearestAbove) or p < nearestAbove
+                nearestAbove := p
+    below = array.new_float()
+    for i = 0 to array.size(swLowPrices) - 1
+        p    = array.get(swLowPrices, i)
+        bidx = array.get(swLowBarIdx, i)
+        if (bar_index - bidx) <= lookbackBars and p < refPrice
+            array.push(below, p)
+    array.sort(below, order.descending)
+    float sl = na(nearestAbove) ? na : nearestAbove * (1 + slBufferPct / 100)
+    float tp = na
+    if array.size(below) >= 2
+        tp := array.get(below, 1)
+    else if array.size(below) == 1
+        tp := array.get(below, 0)
+    if na(tp) and not na(sl)
+        tp := refPrice - 2 * (sl - refPrice)
+    [sl, tp]
+
+// ---------------- Entradas (a favor del rompimiento, apertura de la vela siguiente) ----------------
+if doEnterLong and strategy.position_size == 0
+    [sl, tp] = f_slTpLong(close)
+    if not na(sl) and not na(tp) and sl < close
+        riskAmt = strategy.equity * riskPct / 100
+        qty     = riskAmt / (close - sl)
+        strategy.entry("Long", strategy.long, qty=qty)
+        strategy.exit("Salida Long", from_entry="Long", stop=sl, limit=tp)
+        tradesToday := tradesToday + 1
+        breakoutOn  := false
+
+if doEnterShort and strategy.position_size == 0
+    [sl, tp] = f_slTpShort(close)
+    if not na(sl) and not na(tp) and sl > close
+        riskAmt = strategy.equity * riskPct / 100
+        qty     = riskAmt / (sl - close)
+        strategy.entry("Short", strategy.short, qty=qty)
+        strategy.exit("Salida Short", from_entry="Short", stop=sl, limit=tp)
+        tradesToday := tradesToday + 1
+        breakoutOn  := false
+
+// ---------------- Cierre al fin de la ventana operable (no overnight) ----------------
+if sessEnded and strategy.position_size != 0
+    strategy.close_all(comment="EOD")
+
+// ---------------- Visual: Opening Range y estado ----------------
+plot(inSession and (barsSinceStart <= orBarsCount or orDone) ? orHigh : na,
+     "OR High", color=color.new(color.teal, 0), style=plot.style_linebr, linewidth=1)
+plot(inSession and (barsSinceStart <= orBarsCount or orDone) ? orLow : na,
+     "OR Low", color=color.new(color.maroon, 0), style=plot.style_linebr, linewidth=1)
+
+var table info = table.new(position.top_right, 2, 6, bgcolor=color.new(color.black, 70), border_width=1)
+if barstate.islast
+    table.cell(info, 0, 0, "OR High", text_color=color.white)
+    table.cell(info, 1, 0, str.tostring(orHigh, "#.##"), text_color=color.white)
+    table.cell(info, 0, 1, "OR Low", text_color=color.white)
+    table.cell(info, 1, 1, str.tostring(orLow, "#.##"), text_color=color.white)
+    table.cell(info, 0, 2, "Sesgo", text_color=color.white)
+    table.cell(info, 1, 2, breakoutOn ? breakoutDir : "-", text_color=color.white)
+    table.cell(info, 0, 3, "CVD", text_color=color.white)
+    table.cell(info, 1, 3, str.tostring(cvd, "#"), text_color=color.white)
+    table.cell(info, 0, 4, "Trades hoy", text_color=color.white)
+    table.cell(info, 1, 4, str.tostring(tradesToday), text_color=color.white)
+    table.cell(info, 0, 5, "Sortino/Sharpe", text_color=color.white)
+    table.cell(info, 1, 5, "ver 'Strategy Tester'", text_color=color.white)

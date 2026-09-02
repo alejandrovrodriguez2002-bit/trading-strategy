@@ -118,7 +118,31 @@ scripts/
   run_backtest.py   CLI principal: corre el backtest y genera el reporte
 tests/             tests unitarios (pytest)
 results/           output del último run (trades.csv, métricas, gráfico)
+pine/
+  ny_orb_cvd_absorption.pine  misma estrategia en Pine Script v5 para
+                              TradingView (usa el historial de precios de
+                              TradingView directamente, sin exportar/importar
+                              datos; Sortino/Sharpe/win rate/profit factor los
+                              da nativos el "Strategy Tester" de TradingView)
 ```
+
+## Versión Pine Script (TradingView)
+
+`pine/ny_orb_cvd_absorption.pine` es la misma lógica traducida a Pine v5:
+
+1. Pega el contenido del archivo en el Pine Editor de TradingView.
+2. Ábrelo en un gráfico de QQQ (o NQ1!, etc.) en timeframe de 1 o 5 min.
+3. Pestaña **Strategy Tester → Performance Summary**: ahí ya salen Net
+   Profit, Win Rate, Profit Factor, Max Drawdown, Sharpe Ratio y Sortino
+   Ratio calculados de forma nativa por TradingView, sobre el historial
+   real de TradingView (no hace falta exportar/importar ni conectar
+   nada externo).
+4. El input "Sesión NY" viene por defecto en `0930-1130` (primeras 2
+   horas); ajústalo si quieres probar la sesión completa.
+
+No pude probarlo en un compilador Pine real desde este entorno (no
+existe uno aquí); si al pegarlo te marca algún error de sintaxis,
+mándame el mensaje exacto que da TradingView y lo corrijo.
 
 ## Cómo correrlo
 
