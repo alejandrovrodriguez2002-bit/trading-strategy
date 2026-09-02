@@ -34,7 +34,8 @@ strategy("NY ORB + CVD Absorción (continuación)", shorttitle="ORB+CVD",
      slippage=1)
 
 // ---------------- Inputs ----------------
-sessionInput    = input.session("0930-1130", "Sesión NY (HHMM-HHMM, hora del exchange)", group="Sesión")
+sessionInput    = input.session("0930-1130", "Sesión NY (HHMM-HHMM)", group="Sesión")
+sessionTZ       = input.string("America/New_York", "Zona horaria de la sesión", group="Sesión")
 orMinutes       = input.int(15, "Minutos del Opening Range", minval=1, group="Opening Range")
 
 pivotLR         = input.int(1, "Pivote absorción: velas izq/der para confirmar", minval=1, group="Absorción")
@@ -48,7 +49,11 @@ riskPct         = input.float(1.0, "Riesgo por trade (% del equity)", step=0.1, 
 maxTradesDay    = input.int(1, "Máx. trades por día", minval=1, group="Riesgo")
 
 // ---------------- Sesión / nuevo día ----------------
-sessTime   = time(timeframe.period, sessionInput)
+// OJO: se fuerza la zona horaria de NY explícitamente (3er argumento).
+// Sin esto, time() usa la zona horaria del EXCHANGE del símbolo del
+// gráfico (p.ej. Chicago para NQ1! en CME, o lo que sea el broker en un
+// CFD), no necesariamente Nueva York -> desalinearía todo el Opening Range.
+sessTime   = time(timeframe.period, sessionInput, sessionTZ)
 inSession  = not na(sessTime)
 newSession = inSession and na(sessTime[1])
 wasInSess  = inSession[1]
