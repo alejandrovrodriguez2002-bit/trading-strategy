@@ -112,12 +112,16 @@ src/
   strategy.py      lógica de la estrategia (OR, rompimiento, absorción, SL/TP)
   backtest.py      orquesta datos -> estrategia -> curva de equity
   metrics.py       Sortino, Sharpe, drawdown, win rate, etc.
-  synthetic.py     generador de datos sintéticos (solo demo)
+  synthetic.py     generador de datos sintéticos simple (demo)
+  synthetic_datasets.py  datasets A/B/C para pruebas de robustez (ver abajo)
 scripts/
   download_data.py descarga con yfinance (correr localmente, con internet)
   run_backtest.py   CLI principal: corre el backtest y genera el reporte
+  run_dataset_comparison.py  corre la estrategia sobre los datasets A/B/C
+                              y genera el reporte comparativo
 tests/             tests unitarios (pytest)
 results/           output del último run (trades.csv, métricas, gráfico)
+  comparison/      reporte comparativo A/B/C (ver abajo)
 pine/
   ny_orb_cvd_absorption.pine  misma estrategia en Pine Script v5 para
                               TradingView (usa el historial de precios de
@@ -125,6 +129,54 @@ pine/
                               datos; Sortino/Sharpe/win rate/profit factor los
                               da nativos el "Strategy Tester" de TradingView)
 ```
+
+## Pruebas de robustez: datasets sintéticos A / B / C
+
+`src/synthetic_datasets.py` + `scripts/run_dataset_comparison.py` corren la
+estrategia sobre tres mercados sintéticos con procesos generadores
+**fundamentalmente distintos**, calibrados con la misma volatilidad total
+(mismo orden de magnitud de desviación estándar por vela) para que la
+comparación aísle la FORMA de la distribución y la dinámica temporal, no
+solo "cuál es más ruidoso". El objetivo es de robustez, no de rentabilidad:
+¿el resultado de la estrategia depende de que el mercado se comporte como el
+modelo Gaussiano de libro de texto, o se sostiene bajo dinámicas de colas
+pesadas / criticidad auto-organizada?
+
+- **Dataset A — "Tradicional"**: Geometric Brownian Motion + GARCH(1,1), el
+  modelo estándar de finanzas cuantitativas. Retornos ~condicionalmente
+  Gaussianos, clustering de volatilidad "clásico", colas relativamente
+  delgadas.
+- **Dataset B — "Sistemas complejos / criticidad auto-organizada (SOC)"**:
+  combina una **cascada multiplicativa multifractal** (estilo Markov-
+  Switching Multifractal de Calvet & Fisher — volatilidad como producto de
+  varios componentes que conmutan a distintas escalas temporales) con un
+  **proceso de Hawkes auto-excitante** de magnitudes Pareto/ley de potencia.
+  Este último es exactamente la representación matemática que usa la
+  literatura de criticidad auto-organizada para los ejemplos de referencia
+  que mencionaste — **turbulencia, terremotos (modelo ETAS), avalanchas,
+  incendios forestales, apagones en cascada** — y también se usa en la
+  literatura de mercados financieros para modelar clustering de crashes.
+  Resultado: colas mucho más pesadas (kurtosis ≈10 vs ≈0.7 de A) y eventos
+  que se agrupan en el tiempo ("avalanchas") en vez de ser independientes.
+- **Dataset C — "Regime-switching" (combina A y B)**: cadena de Markov de 2
+  estados (calma/crítico) que alterna entre la dinámica de A y la de B, con
+  episodios críticos más cortos y agudos que los tramos de calma — como los
+  ciclos reales de mercado. Queda en un punto intermedio (kurtosis ≈2).
+
+Correrlo:
+```bash
+python scripts/run_dataset_comparison.py
+```
+Genera en `results/comparison/`: `comparison_report.md` (tabla con
+kurtosis/ACF de cada dataset + todas las métricas de la estrategia lado a
+lado), `comparison_equity_curves.png` (las 3 equity curves superpuestas) y
+`comparison_return_distributions.png` (histograma de retornos en escala
+log, para ver las colas). Cada dataset también guarda su `trades.csv` y
+`metrics.json` en su propia subcarpeta.
+
+**Importante**: igual que el resto de este repo, esto corre sobre precios
+SINTÉTICOS — sirve para ver si la estrategia es frágil ante ciertos
+supuestos de mercado, no reemplaza el backtest con datos reales.
 
 ## Versión Pine Script (TradingView)
 
