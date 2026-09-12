@@ -59,7 +59,9 @@ basada en swings (highs/lows) más cercanos.
 ## Reglas implementadas
 
 1. **Rango de apertura (OR)**: high y low de los primeros 15 minutos de
-   la sesión de NY (09:30–09:45 ET, configurable).
+   la sesión de NY (09:30–09:45 ET, configurable). Solo se toma como válido
+   si además hay una **entrada de volumen considerable** durante ese rango
+   respecto al volumen reciente — ver "Filtro de volumen de apertura" abajo.
 2. **Sesgo direccional**: la primera vez que el precio toca/rompe el
    OR-high o el OR-low define el sesgo — rompe el high → sesgo **LONG**;
    rompe el low → sesgo **SHORT**.
@@ -92,6 +94,33 @@ basada en swings (highs/lows) más cercanos.
 
 Todos los parámetros (minutos del OR, ventana de fractales, % de riesgo,
 slippage, etc.) están en `config/strategy_config.yaml`.
+
+### Filtro de volumen de apertura
+
+La estrategia solo se activa cuando hay una **entrada de volumen
+considerable** que se asemeja a la apertura real de NY, no simplemente
+porque el reloj marque las 9:30. Concretamente (`src/strategy.py:
+_volume_surge_ok`): se calcula el volumen promedio de las `lookback_bars`
+velas previas (línea base de "volumen normal") y se exige que el volumen
+máximo dentro del rango de apertura sea al menos `multiplier` veces esa
+línea base (default: 20 velas de línea base, 1.5x). Si no se cumple, el
+día se descarta por completo — no hay setup ese día — igual que un trader
+real ignoraría una apertura con muy poca participación (feriado, sesión
+ilíquida, medio día, etc.).
+
+Esto también hace más realista la simulación de mercado: los tres datasets
+sintéticos (`src/synthetic_datasets.py` y `src/synthetic.py`) ahora
+incluyen un **perfil de volumen intradía** con un pico en la apertura (≈3-4x
+el volumen "normal" del resto del día) que decae exponencialmente en los
+primeros ~30 minutos — el patrón real de "explosión de volumen" que ocurre
+cuando abre el mercado de NY. Como el CVD se calcula ponderado por volumen,
+esto también hace que la señal de absorción esté naturalmente dominada por
+el flujo de órdenes de la primera media hora, que es justo el período que
+le interesa a esta estrategia.
+
+Parámetros en `config/strategy_config.yaml` bajo `volume_filter:`
+(`enabled`, `lookback_bars`, `multiplier`) — puedes desactivarlo
+(`enabled: false`) para comparar el efecto.
 
 ## Métricas calculadas
 

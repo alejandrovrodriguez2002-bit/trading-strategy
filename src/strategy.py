@@ -4,7 +4,10 @@ Estrategia: NY Opening Range Breakout + confirmación de absorción con CVD (con
 Reglas implementadas (ver README.md para el detalle y los supuestos documentados):
 
 1. Rango de apertura (OR): high/low de los primeros `or_minutes` (default 15)
-   de la sesión de NY.
+   de la sesión de NY. Solo se valida si el volumen del OR es "considerable"
+   respecto al volumen reciente (ver `_volume_surge_ok`) — así el rango de
+   apertura solo se activa cuando el mercado realmente muestra la entrada de
+   volumen típica de la apertura de NY, no en sesiones de baja liquidez.
 2. Sesgo direccional: la primera vez que el precio toca/rompe el OR-high o el
    OR-low (cronológicamente) define el sesgo: rompe el high -> sesgo LONG,
    rompe el low -> sesgo SHORT.
@@ -75,6 +78,29 @@ def _opening_range(df: pd.DataFrame, start_pos: int, end_pos: int, or_minutes: i
         return None
     or_slice = df.iloc[start_pos:or_end_pos]
     return float(or_slice["high"].max()), float(or_slice["low"].min()), or_end_pos
+
+
+def _volume_surge_ok(df: pd.DataFrame, start_pos: int, or_end_pos: int, cfg: Config) -> bool:
+    """Exige que el rango de apertura venga acompañado de una entrada de
+    volumen considerable (respecto al volumen reciente) antes de tomarlo
+    como válido — así el "opening range" solo se activa cuando el mercado
+    realmente muestra la explosión de participación típica de la apertura
+    de NY, y no en aperturas de baja liquidez (feriados, sesiones flojas,
+    datos con volumen plano) donde la premisa de la estrategia no aplica.
+    """
+    if not cfg.volume_filter_enabled:
+        return True
+
+    lookback_start = max(0, start_pos - cfg.volume_lookback_bars)
+    if lookback_start == start_pos:
+        return True  # no hay suficiente historia previa para estimar una línea base -> se deja pasar
+
+    baseline = df["volume"].iloc[lookback_start:start_pos].mean()
+    if baseline <= 0:
+        return True
+
+    or_volume = df["volume"].iloc[start_pos:or_end_pos].max()
+    return bool(or_volume >= cfg.volume_multiplier * baseline)
 
 
 def _find_breakout(df: pd.DataFrame, start_pos: int, end_pos: int, or_high: float, or_low: float):
@@ -229,6 +255,8 @@ def generate_trades(df: pd.DataFrame, cfg: Config) -> pd.DataFrame:
         or_high, or_low, or_end_pos = or_result
         if or_end_pos > end_pos:
             continue
+        if not _volume_surge_ok(df, start_pos, or_end_pos, cfg):
+            continue  # sin entrada de volumen considerable -> no se toma como apertura válida
 
         trades_today = 0
         search_pos = or_end_pos

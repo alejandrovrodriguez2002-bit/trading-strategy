@@ -15,6 +15,16 @@ session:
 opening_range:
   minutes: 15              # Primeros N minutos de la sesión NY que marcan el high/low
 
+volume_filter:
+  # Exige que el volumen del rango de apertura sea "considerable" respecto al
+  # volumen reciente antes de validar el día — así el rango de apertura solo
+  # se toma en cuenta cuando de verdad hay una entrada de volumen que se
+  # asemeja a la apertura real de NY (evita operar aperturas "de mentira" con
+  # baja participación, p.ej. sesiones ilíquidas/feriados).
+  enabled: true
+  lookback_bars: 20        # velas previas usadas como línea base de volumen "normal"
+  multiplier: 1.5          # el volumen del OR debe ser >= multiplier x la línea base
+
 absorption:
   # Búsqueda de pivotes (fractales de 3 velas) dentro del pullback tras el rompimiento
   pivot_lookback: 1        # velas a cada lado para confirmar un pivote (3 velas totales)

@@ -25,6 +25,12 @@
 //     el mismo retraso (rightbars) que la versión Python — sin look-ahead.
 //   - SL = swing más cercano; TP = segundo swing más cercano (se salta el
 //     primero), igual que en el motor Python.
+//   - El OR solo se toma como válido si hay una entrada de volumen
+//     "considerable" (por defecto: >= 1.5x el volumen promedio de las 20
+//     velas previas) — así la estrategia solo se activa cuando el mercado
+//     realmente muestra la explosión de participación de la apertura de NY,
+//     no en sesiones de baja liquidez. Ajustable en el grupo de inputs
+//     "Filtro de volumen".
 // =============================================================================
 strategy("NY ORB + CVD Absorción (continuación)", shorttitle="ORB+CVD",
      overlay=true, pyramiding=0,
@@ -41,6 +47,10 @@ orMinutes       = input.int(15, "Minutos del Opening Range", minval=1, group="Op
 pivotLR         = input.int(1, "Pivote absorción: velas izq/der para confirmar", minval=1, group="Absorción")
 maxBarsSearch   = input.int(0, "Máx. velas tras rompimiento para buscar absorción (0 = sin límite)", minval=0, group="Absorción")
 invalidateRetr  = input.bool(true, "Invalidar si el precio retrocede al otro lado del OR", group="Absorción")
+
+volFilterEnabled = input.bool(true, "Exigir entrada de volumen considerable en el OR", group="Filtro de volumen")
+volLookbackBars  = input.int(20, "Velas previas para la línea base de volumen", minval=1, group="Filtro de volumen")
+volMultiplier    = input.float(1.5, "Múltiplo mínimo sobre la línea base", step=0.1, group="Filtro de volumen")
 
 swingLR         = input.int(3, "Swing SL/TP: velas izq/der", minval=1, group="Riesgo")
 swingLookbackD  = input.int(5, "Días hacia atrás para buscar swings de SL/TP", minval=1, group="Riesgo")
@@ -82,6 +92,8 @@ var bool  haveFirstPivot  = false
 var float lastPivotPrice  = na
 var float lastPivotCVD    = na
 var int   tradesToday     = 0
+var float orBaselineVol   = na
+var float orMaxVolume     = na
 
 if newSession
     orHigh         := high
@@ -94,14 +106,23 @@ if newSession
     invalidated    := false
     haveFirstPivot := false
     tradesToday    := 0
+    // línea base de volumen = SMA de las volLookbackBars velas ANTERIORES a la
+    // apertura (excluye la vela actual) — mismo criterio que _volume_surge_ok en Python
+    orBaselineVol  := ta.sma(volume, volLookbackBars)[1]
+    orMaxVolume    := volume
 else if inSession
     barsSinceStart := nz(barsSinceStart) + 1
 
 if inSession and barsSinceStart <= orBarsCount
     orHigh := math.max(orHigh, high)
     orLow  := math.min(orLow, low)
+    orMaxVolume := math.max(orMaxVolume, volume)
     if barsSinceStart == orBarsCount
         orDone := true
+        // sin una entrada de volumen "considerable" en el OR, no se toma como
+        // una apertura de NY válida -> se descarta el setup del día completo
+        if volFilterEnabled and not na(orBaselineVol) and orBaselineVol > 0 and orMaxVolume < volMultiplier * orBaselineVol
+            daySkipped := true
 
 // ---------------- Búsqueda de rompimiento (define el sesgo) ----------------
 if inSession and orDone and not breakoutOn and not daySkipped and tradesToday < maxTradesDay
@@ -265,7 +286,7 @@ plot(inSession and (barsSinceStart <= orBarsCount or orDone) ? orHigh : na,
 plot(inSession and (barsSinceStart <= orBarsCount or orDone) ? orLow : na,
      "OR Low", color=color.new(color.maroon, 0), style=plot.style_linebr, linewidth=1)
 
-var table info = table.new(position.top_right, 2, 6, bgcolor=color.new(color.black, 70), border_width=1)
+var table info = table.new(position.top_right, 2, 7, bgcolor=color.new(color.black, 70), border_width=1)
 if barstate.islast
     table.cell(info, 0, 0, "OR High", text_color=color.white)
     table.cell(info, 1, 0, str.tostring(orHigh, "#.##"), text_color=color.white)
@@ -275,7 +296,9 @@ if barstate.islast
     table.cell(info, 1, 2, breakoutOn ? breakoutDir : "-", text_color=color.white)
     table.cell(info, 0, 3, "CVD", text_color=color.white)
     table.cell(info, 1, 3, str.tostring(cvd, "#"), text_color=color.white)
-    table.cell(info, 0, 4, "Trades hoy", text_color=color.white)
-    table.cell(info, 1, 4, str.tostring(tradesToday), text_color=color.white)
-    table.cell(info, 0, 5, "Sortino/Sharpe", text_color=color.white)
-    table.cell(info, 1, 5, "ver 'Strategy Tester'", text_color=color.white)
+    table.cell(info, 0, 4, "Vol. OR / línea base", text_color=color.white)
+    table.cell(info, 1, 4, na(orBaselineVol) or orBaselineVol == 0 ? "s/datos" : str.tostring(orMaxVolume / orBaselineVol, "#.##") + "x", text_color=daySkipped ? color.orange : color.white)
+    table.cell(info, 0, 5, "Trades hoy", text_color=color.white)
+    table.cell(info, 1, 5, str.tostring(tradesToday), text_color=color.white)
+    table.cell(info, 0, 6, "Sortino/Sharpe", text_color=color.white)
+    table.cell(info, 1, 6, "ver 'Strategy Tester'", text_color=color.white)

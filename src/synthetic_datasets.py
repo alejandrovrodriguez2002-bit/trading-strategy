@@ -111,6 +111,17 @@ def _pareto_sample(u: float, xm: float, alpha: float) -> float:
     return xm * (1.0 - u) ** (-1.0 / alpha)
 
 
+def _open_volume_profile(n: int, bars_per_day: int, peak_multiplier: float = 3.0, decay_bars: float = 6.0) -> np.ndarray:
+    """Perfil de volumen intradía: pico de 'entrada de volumen considerable'
+    justo en la apertura de NY, que decae exponencialmente en los minutos
+    siguientes — así el filtro de volumen (ver src/strategy.py) tiene una
+    señal real de "esto se parece a la apertura de NY" que detectar, en vez
+    de un volumen plano sin estructura horaria.
+    """
+    bar_idx_in_day = np.arange(n) % bars_per_day
+    return 1.0 + peak_multiplier * np.exp(-bar_idx_in_day / decay_bars)
+
+
 # ---------------------------------------------------------------------------
 # Dataset A: GBM + GARCH(1,1) ("tradicional")
 # ---------------------------------------------------------------------------
@@ -131,6 +142,8 @@ def generate_dataset_a(
     rng = np.random.default_rng(seed)
     ts = _session_timestamps(months_back, interval_minutes, tz)
     n = len(ts)
+    bars_per_day = int(390 / interval_minutes)
+    vol_profile = _open_volume_profile(n, bars_per_day)
 
     returns = np.empty(n)
     sigma = np.empty(n)
@@ -146,7 +159,7 @@ def generate_dataset_a(
         returns[i] = r
         sigma[i] = s
         prev_r2 = r * r
-        volume[i] = max(1.0, rng.lognormal(mean=9.0, sigma=0.4) * (1 + 2.0 * abs(r) / max(s, 1e-9) * 0.05))
+        volume[i] = max(1.0, rng.lognormal(mean=9.0, sigma=0.4) * vol_profile[i] * (1 + 2.0 * abs(r) / max(s, 1e-9) * 0.05))
 
     return _bars_from_returns(ts, returns, sigma, volume, start_price, gap_std, rng)
 
@@ -194,6 +207,8 @@ def generate_dataset_b(
     rng = np.random.default_rng(seed)
     ts = _session_timestamps(months_back, interval_minutes, tz)
     n = len(ts)
+    bars_per_day = int(390 / interval_minutes)
+    vol_profile = _open_volume_profile(n, bars_per_day)
 
     switch_probs = np.array([min(0.5, p1 * (decay ** i)) for i in range(k_cascade)])
     multipliers = rng.choice([m_low, m_high], size=k_cascade)
@@ -230,7 +245,7 @@ def generate_dataset_b(
         returns[i] = r
 
         vol_base = rng.lognormal(mean=9.0, sigma=0.4)
-        volume[i] = max(1.0, vol_base * (1 + (6.0 if shock_flag[i] else 0.0) + 3.0 * abs(r) / max(sigma_t, 1e-9) * 0.05))
+        volume[i] = max(1.0, vol_base * vol_profile[i] * (1 + (6.0 if shock_flag[i] else 0.0) + 3.0 * abs(r) / max(sigma_t, 1e-9) * 0.05))
 
     return _bars_from_returns(ts, returns, sigma_series, volume, start_price, gap_std, rng)
 
@@ -257,6 +272,8 @@ def generate_dataset_c(
     rng = np.random.default_rng(seed)
     ts = _session_timestamps(months_back, interval_minutes, tz)
     n = len(ts)
+    bars_per_day = int(390 / interval_minutes)
+    vol_profile = _open_volume_profile(n, bars_per_day)
 
     a_kw = dict(mu=0.0, omega=2e-7, alpha_garch=0.08, beta_garch=0.90)
     a_kw.update(dataset_a_kwargs or {})
@@ -325,7 +342,7 @@ def generate_dataset_c(
 
         vol_base = rng.lognormal(mean=9.0, sigma=0.4)
         extra = (6.0 if vshock else 0.0) + (2.0 if state == "critical" else 0.0)
-        volume[i] = max(1.0, vol_base * (1 + extra + 3.0 * abs(returns[i]) / max(intrabar_vol[i], 1e-9) * 0.05))
+        volume[i] = max(1.0, vol_base * vol_profile[i] * (1 + extra + 3.0 * abs(returns[i]) / max(intrabar_vol[i], 1e-9) * 0.05))
 
     df = _bars_from_returns(ts, returns, intrabar_vol, volume, start_price, gap_std=0.002, rng=rng)
     df["regime"] = regime

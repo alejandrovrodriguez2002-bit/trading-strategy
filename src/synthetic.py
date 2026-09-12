@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
+from .synthetic_datasets import _open_volume_profile
+
 
 def generate_synthetic_ohlcv(
     months_back: int = 6,
@@ -28,6 +30,7 @@ def generate_synthetic_ohlcv(
     trading_days = pd.bdate_range(start_date, end_date)  # aproximación: días hábiles (sin festivos US)
 
     bars_per_day = int(390 / interval_minutes)  # sesión 9:30-16:00 = 390 min
+    vol_profile_by_bar = _open_volume_profile(bars_per_day, bars_per_day)  # pico de volumen en la apertura
     rows = []
     price = start_price
     daily_vol_regime = rng.uniform(0.0006, 0.0016, size=len(trading_days))
@@ -47,7 +50,7 @@ def generate_synthetic_ohlcv(
             c = o * (1 + ret)
             hi = max(o, c) * (1 + abs(rng.normal(0, sigma * 0.6)))
             lo = min(o, c) * (1 - abs(rng.normal(0, sigma * 0.6)))
-            vol = max(1, rng.lognormal(mean=9.0, sigma=0.5))
+            vol = max(1, rng.lognormal(mean=9.0, sigma=0.5) * vol_profile_by_bar[b])
             rows.append((ts, o, hi, lo, c, vol))
             price = c
 
