@@ -1,0 +1,54 @@
+name: Fetch NASDAQ candles (Databento)
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: "Dataset de Databento (XNAS.ITCH = equities Nasdaq, DBEQ.BASIC = consolidado, GLBX.MDP3 = futuros CME)"
+        required: false
+        default: "XNAS.ITCH"
+      symbols:
+        description: "Símbolo(s) separados por coma (ej. QQQ, o NQ.c.0 para el futuro continuo en GLBX.MDP3)"
+        required: false
+        default: "QQQ"
+      stype_in:
+        description: "Tipo de símbolo de entrada (raw_symbol, parent, continuous, etc.)"
+        required: false
+        default: "raw_symbol"
+      days:
+        description: "Días hacia atrás a solicitar (Databento sí soporta rangos largos; ojo con tu cuota/costo)"
+        required: false
+        default: "180"
+
+jobs:
+  fetch-candles:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install databento pandas
+
+      - name: Run Databento extraction script
+        env:
+          DATABENTO_API_KEY: ${{ secrets.DATABENTO_API_KEY }}
+        run: |
+          python3 scripts/fetch_databento_candles.py \
+            --dataset "${{ github.event.inputs.dataset }}" \
+            --symbols "${{ github.event.inputs.symbols }}" \
+            --stype-in "${{ github.event.inputs.stype_in }}" \
+            --days "${{ github.event.inputs.days }}" \
+            --outdir data
+
+      - name: Upload CSVs as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: databento-candles-csv
+          path: data/databento_*.csv
+          if-no-files-found: warn
