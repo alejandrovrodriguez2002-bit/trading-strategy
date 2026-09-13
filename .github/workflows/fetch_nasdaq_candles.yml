@@ -1,0 +1,42 @@
+name: Fetch Nasdaq candles (CSV)
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: "Símbolo a descargar (ej. ^IXIC = Nasdaq Composite, ^NDX = Nasdaq-100, QQQ)"
+        required: false
+        default: "^IXIC"
+      days:
+        description: "Días hacia atrás a solicitar (Yahoo Finance recorta 1m a ~7 días y 2-5m a ~60 días)"
+        required: false
+        default: "30"
+
+jobs:
+  fetch-candles:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install yfinance pandas
+
+      - name: Run candle extraction script
+        run: |
+          python3 scripts/fetch_nasdaq_candles.py \
+            --symbol "${{ github.event.inputs.symbol }}" \
+            --days "${{ github.event.inputs.days }}" \
+            --outdir data
+
+      - name: Upload CSVs as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nasdaq-candles-csv
+          path: data/*.csv
+          if-no-files-found: warn

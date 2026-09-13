@@ -152,11 +152,20 @@ scripts/
                               sobre los datasets A/B/C
   run_or_window_sweep_real.py  mismo barrido pero sobre datos reales
                                 (NASDAQ ^IXIC en data/*.csv)
+  fetch_nasdaq_candles.py    extrae velas de Yahoo Finance (gratis, corto
+                              historial) — pensado para correr vía Actions
+  fetch_databento_candles.py extrae velas de Databento (de pago, meses/
+                              años de historial real) — vía Actions
 tests/             tests unitarios (pytest)
 results/           output del último run (trades.csv, métricas, gráfico)
   comparison/      reporte comparativo A/B/C (ver abajo)
   or_window_sweep_real/  barrido de OR sobre datos reales (ver abajo)
   or_window_sweep/ reporte del barrido de ventana de OR (ver abajo)
+.github/workflows/
+  fetch_nasdaq_candles.yml     corre fetch_nasdaq_candles.py en un runner
+                                de GitHub (con internet real)
+  fetch_databento_candles.yml  corre fetch_databento_candles.py (requiere
+                                el secret DATABENTO_API_KEY, ver abajo)
 pine/
   ny_orb_cvd_absorption.pine  misma estrategia en Pine Script v5 para
                               TradingView (usa el historial de precios de
@@ -320,6 +329,40 @@ Esto genera en `results/`: `trades.csv` (log completo de operaciones),
 pytest tests/ -q
 ```
 
+## Extracción de datos reales vía GitHub Actions
+
+Este sandbox no tiene acceso de red a proveedores de datos (ver
+limitaciones arriba), pero un runner de GitHub Actions sí tiene internet
+normal. Hay dos workflows manuales (`workflow_dispatch`) en
+`.github/workflows/` para correr la extracción ahí y descargar el CSV
+resultante como artifact del run (Actions → el run → "Artifacts"):
+
+- **`fetch_nasdaq_candles.yml`** (Yahoo Finance, gratis): usa
+  `scripts/fetch_nasdaq_candles.py`. Rápido para probar, pero limitado a
+  ~7 días (1m) / ~60 días (2-5m) de historial — ver limitaciones arriba.
+- **`fetch_databento_candles.yml`** (Databento, de pago): usa
+  `scripts/fetch_databento_candles.py`. Databento sí entrega meses/años
+  de historial de 1 minuto real — la vía correcta para el backtest de 6
+  meses. Requiere:
+  1. Una cuenta y API key de Databento (databento.com).
+  2. Guardar la key como **secret** del repo: Settings → Secrets and
+     variables → Actions → New repository secret → nombre
+     `DATABENTO_API_KEY`. Así nunca pasa por este chat ni por los logs
+     del workflow.
+  3. Correr el workflow manualmente (pestaña Actions → "Fetch NASDAQ
+     candles (Databento)" → Run workflow), ajustando `dataset` (por
+     defecto `XNAS.ITCH`, equities Nasdaq — o `GLBX.MDP3` para el futuro
+     NQ), `symbols` (por defecto `QQQ`) y `days` (por defecto 180).
+  4. Descargar el CSV del artifact `databento-candles-csv` y subírmelo
+     (o pegarlo en `data/`) para correr el backtest con datos reales de
+     verdad.
+
+  ⚠️ Es un servicio de pago — revisa tu plan/cuota antes de pedir rangos
+  largos. El script se escribió verificando la firma exacta del SDK
+  oficial de Databento (instalando el paquete), pero no se pudo probar
+  una llamada real a la API desde este entorno — si el workflow falla,
+  pásame el error exacto del log y se ajusta.
+
 ## Próximos pasos sugeridos
 
 - Pasarme un CSV real de 6 meses (1m o 5m, con volumen) para correr el
@@ -329,3 +372,4 @@ pytest tests/ -q
   mínimo de divergencia, número exacto de velas, o un CVD calculado con
   datos de tick reales de tu plataforma), lo ajustamos en `src/cvd.py` y
   `src/strategy.py` sin tocar el resto del motor.
+
