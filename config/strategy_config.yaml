@@ -25,6 +25,17 @@ volume_filter:
   lookback_bars: 20        # velas previas usadas como línea base de volumen "normal"
   multiplier: 1.5          # el volumen del OR debe ser >= multiplier x la línea base
 
+poc_filter:
+  # Descarta entradas demasiado cerca del Punto de Control (POC) del perfil
+  # de volumen de la SEMANA ANTERIOR completa (el nivel de precio con más
+  # volumen operado) — es una zona de rotación/consolidación donde el
+  # mercado tiende a no tender con fuerza, así que un trade que arranca ahí
+  # mismo es de peor calidad. Usa siempre la semana anterior (nunca la
+  # semana en curso, que aún no terminó) para no meter look-ahead.
+  enabled: true
+  bin_pct: 0.0005          # ancho de cada bin del perfil de volumen (% del precio medio de la semana)
+  min_distance_pct: 0.3    # distancia mínima requerida al POC (% del precio de entrada)
+
 absorption:
   # Búsqueda de pivotes (fractales de 3 velas) dentro del pullback tras el rompimiento
   pivot_lookback: 1        # velas a cada lado para confirmar un pivote (3 velas totales)

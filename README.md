@@ -91,6 +91,9 @@ basada en swings (highs/lows) más cercanos.
    (no se dejan posiciones overnight). Máximo 1 trade/día (configurable).
 7. **Position sizing**: riesgo fijo por trade (% del equity, configurable
    en `config/strategy_config.yaml`), con slippage y comisión opcionales.
+8. **Filtro de POC semanal**: se descarta la entrada si el precio queda
+   demasiado cerca del Punto de Control (nivel de mayor volumen) del
+   perfil de volumen de la semana anterior completa — ver detalle abajo.
 
 Todos los parámetros (minutos del OR, ventana de fractales, % de riesgo,
 slippage, etc.) están en `config/strategy_config.yaml`.
@@ -122,6 +125,31 @@ Parámetros en `config/strategy_config.yaml` bajo `volume_filter:`
 (`enabled`, `lookback_bars`, `multiplier`) — puedes desactivarlo
 (`enabled: false`) para comparar el efecto.
 
+### Filtro de Punto de Control (POC) semanal
+
+Además se descarta cualquier entrada cuyo precio quede demasiado cerca
+del **Punto de Control (POC)** — el nivel de precio con más volumen
+operado — del perfil de volumen de la **semana ANTERIOR completa**
+(`src/volume_profile.py`, `src/strategy.py: _near_weekly_poc`). El POC
+es una zona de rotación/consolidación (donde más se negoció, así que el
+mercado tiende a "regresar" ahí en vez de tender con fuerza) — una
+entrada justo encima es de peor calidad.
+
+Cómo se calcula: precio típico por vela = (high+low+close)/3, ponderado
+por volumen, agrupado en bins de `bin_pct` % del precio medio de la
+semana; el POC es el bin con más volumen acumulado. Siempre se usa la
+semana ISO **anterior** a la del trade (nunca la semana en curso, que
+todavía no terminó) para no meter look-ahead.
+
+Parámetros en `config/strategy_config.yaml` bajo `poc_filter:`
+(`enabled`, `bin_pct`, `min_distance_pct`, default 0.3% de distancia
+mínima). Sobre los 6 meses reales de QQQ el filtro elimina un puñado de
+trades por combinación (p.ej. 78→75 en velas de 1m con OR de 5 min) pero
+**no cambia el resultado de fondo**: la estrategia sigue siendo negativa
+en las granularidades con muestra suficiente — es un filtro de calidad
+puntual, no una solución al problema estructural que muestra el
+backtest con datos reales (ver la sección de abajo).
+
 ## Métricas calculadas
 
 `src/metrics.py` calcula, sobre la curva de equity diaria y el log de
@@ -143,6 +171,7 @@ src/
   metrics.py       Sortino, Sharpe, drawdown, win rate, etc.
   synthetic.py     generador de datos sintéticos simple (demo)
   synthetic_datasets.py  datasets A/B/C para pruebas de robustez (ver abajo)
+  volume_profile.py      perfil de volumen semanal + Punto de Control (POC)
 scripts/
   download_data.py descarga con yfinance (correr localmente, con internet)
   run_backtest.py   CLI principal: corre el backtest y genera el reporte
@@ -282,28 +311,27 @@ en `src/data.py: load_csv` y `scripts/fetch_databento_candles.py`
 
 #### Resultado con 6 meses reales de QQQ (Databento) — el que de verdad importa
 
-125 días de trading, marzo-septiembre 2026, 1 a 97 trades por
-combinación según la granularidad. A diferencia de las pruebas con
-datos sintéticos (donde el dataset C de regime-switching mostraba
-Sortino positivo y claramente mejor con ventanas de OR cortas), **sobre
-datos reales de QQQ la estrategia da resultados negativos de forma
-consistente** en las granularidades con suficientes trades para ser
-estadísticamente relevantes (1m/2m/3m/5m — 26 a 97 trades cada una):
+125 días de trading, marzo-septiembre 2026, con el filtro de POC semanal
+ya activo (ver arriba). A diferencia de las pruebas con datos sintéticos
+(donde el dataset C de regime-switching mostraba Sortino positivo y
+claramente mejor con ventanas de OR cortas), **sobre datos reales de QQQ
+la estrategia da resultados negativos de forma consistente** en las
+granularidades con suficientes trades para ser estadísticamente
+relevantes (1m/2m/3m/5m — 26 a 93 trades cada una):
 
 | Intervalo | Mejor OR | Sortino | Profit factor | Retorno |
 |---|---|---|---|---|
-| 1m | 60 min | -3.18 | 0.59 | -13.1% |
-| 2m | 30 min | -0.29 | 0.95 | -1.7% |
-| 3m | 15 min | -0.23 | 0.95 | -1.2% |
-| 5m | 10 min | -1.13 | 0.76 | -2.7% |
+| 1m | 60 min | -2.42 | 0.66 | -9.46% |
+| 2m | 15 min | -0.87 | 0.88 | -4.24% |
+| 3m | 15 min | -0.001 | 0.98 | -0.39% |
+| 5m | 10 min | -1.56 | 0.66 | -3.47% |
 
-Es decir: **en ningún caso con muestra suficiente (26+ trades) el
-profit factor supera 1.0** — la estrategia pierde dinero de forma
-consistente sobre este período real, con las peores cifras justamente
-en 1 minuto (Sortino -3.2 a -6.5, profit factor 0.33-0.59). Los
-intervalos de 10m/15m/30m/60m sí muestran Sortino positivo en algún
-punto, pero con 0-8 trades en 6 meses — insuficiente para sacar ninguna
-conclusión (ver `results/or_window_sweep_real_qqq/`).
+Es decir: **en ningún caso con muestra suficiente (25+ trades) el
+profit factor llega a 1.0** (el más cercano, 3m/OR15, queda en 0.98 —
+prácticamente breakeven pero aún negativo). Los intervalos de
+10m/15m/30m/60m sí muestran Sortino positivo en algún punto, pero con
+0-8 trades en 6 meses — insuficiente para sacar ninguna conclusión (ver
+`results/or_window_sweep_real_qqq/`).
 
 **Esto es justo la razón por la que insistí tanto en probar con datos
 reales antes de sacar conclusiones de los datasets sintéticos**: el
