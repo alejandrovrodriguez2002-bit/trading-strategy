@@ -25,20 +25,6 @@ volume_filter:
   lookback_bars: 20        # velas previas usadas como línea base de volumen "normal"
   multiplier: 1.5          # el volumen del OR debe ser >= multiplier x la línea base
 
-poc_filter:
-  # Solo se toman entradas cuya distancia a la media (~VWAP) de la SEMANA
-  # ANTERIOR completa caiga entre std_low_k y std_high_k desviaciones
-  # estándar (bandas estilo VWAP ± 1σ/2σ, calculadas con precio típico
-  # ponderado por volumen). Se descarta tanto lo que está demasiado pegado
-  # al centro (< 1σ, bajo potencial de recorrido / zona de rotación) como
-  # lo demasiado extendido (> 2σ, posible sobre-extensión/outlier). Usa
-  # siempre la semana anterior (nunca la semana en curso, que aún no
-  # terminó) para no meter look-ahead.
-  enabled: true
-  bin_pct: 0.0005          # ancho de cada bin del perfil de volumen (% del precio medio de la semana), usado para el POC informativo
-  std_low_k: 1.0           # banda inferior: mínimo de desviaciones estándar requeridas
-  std_high_k: 2.0          # banda superior: máximo de desviaciones estándar permitidas
-
 absorption:
   # Búsqueda de pivotes (fractales de 3 velas) dentro del pullback tras el rompimiento
   pivot_lookback: 1        # velas a cada lado para confirmar un pivote (3 velas totales)

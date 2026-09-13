@@ -24,11 +24,12 @@ Reglas implementadas (ver README.md para el detalle y los supuestos documentados
    operación (se salta el más cercano).
 6. Si no se toca ni el SL ni el TP, se cierra en el cierre de la sesión
    (no se dejan posiciones overnight).
-7. Filtro de bandas de desviación estándar semanal: solo se acepta la
-   entrada si su distancia a la media (~VWAP) del perfil de volumen de la
-   SEMANA ANTERIOR completa cae entre 1 y 2 desviaciones estándar — ni muy
-   pegada al centro (zona de rotación, bajo potencial de recorrido) ni
-   demasiado extendida (posible sobre-extensión/outlier).
+
+Nota: se probó un filtro adicional de bandas de desviación estándar
+semanal (VWAP ± 1σ/2σ, ver git history) que aceptaba solo entradas a
+1-2σ de la media semanal anterior. Se retiró porque, validado contra 6
+meses reales de QQQ, no mejoraba el resultado — en varios casos lo
+empeoraba (ver README.md).
 """
 from __future__ import annotations
 
@@ -40,7 +41,6 @@ import pandas as pd
 
 from .config import Config
 from .swings import Pivot, find_pivots, nearest_levels
-from .volume_profile import get_prior_week_stats, weekly_stats
 
 
 @dataclasses.dataclass
@@ -108,22 +108,6 @@ def _volume_surge_ok(df: pd.DataFrame, start_pos: int, or_end_pos: int, cfg: Con
     or_volume = df["volume"].iloc[start_pos:or_end_pos].max()
     return bool(or_volume >= cfg.volume_multiplier * baseline)
 
-
-def _in_valid_sd_band(entry_price: float, entry_time: pd.Timestamp, weekly_stats: dict, cfg: Config) -> bool:
-    """True si la entrada es ACEPTABLE: su distancia a la media (~VWAP) de
-    la SEMANA ANTERIOR completa cae entre `poc_std_low_k` y `poc_std_high_k`
-    desviaciones estándar (bandas estilo VWAP ± 1σ/2σ). Se rechaza tanto lo
-    demasiado pegado al centro (< low_k σ, zona de rotación/bajo potencial
-    de recorrido) como lo demasiado extendido (> high_k σ, posible
-    sobre-extensión/outlier).
-    """
-    if not cfg.poc_filter_enabled:
-        return True
-    stats = get_prior_week_stats(weekly_stats, entry_time)
-    if stats is None or stats["std"] <= 0:
-        return True  # sin semana previa (o sin dispersión) -> se deja pasar
-    distance = abs(entry_price - stats["mean"])
-    return cfg.poc_std_low_k * stats["std"] <= distance <= cfg.poc_std_high_k * stats["std"]
 
 
 def _find_breakout(df: pd.DataFrame, start_pos: int, end_pos: int, or_high: float, or_low: float):
@@ -270,7 +254,6 @@ def generate_trades(df: pd.DataFrame, cfg: Config) -> pd.DataFrame:
     ya filtrado a horario de sesión e indexado en tz de NY."""
     trades: list[Trade] = []
     equity = cfg.starting_equity
-    stats_by_week = weekly_stats(df, cfg.poc_bin_pct) if cfg.poc_filter_enabled else {}
 
     for date, start_pos, end_pos in _session_day_groups(df):
         or_result = _opening_range(df, start_pos, end_pos, cfg.or_minutes)
@@ -297,9 +280,6 @@ def generate_trades(df: pd.DataFrame, cfg: Config) -> pd.DataFrame:
             entry_pos = absorption["entry_pos"]
             raw_entry_price = float(df["open"].iloc[entry_pos])
             entry_price = _apply_slippage(raw_entry_price, direction, "entry", cfg.slippage_bps)
-
-            if not _in_valid_sd_band(entry_price, df.index[entry_pos], stats_by_week, cfg):
-                break  # fuera de la banda [1σ,2σ] respecto a la media semanal anterior -> se descarta el día
 
             sl, tp, reason = _compute_sl_tp(df, entry_pos, entry_price, direction, cfg)
             if sl is None:
