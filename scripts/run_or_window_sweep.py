@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Barrido del tamaño del rango de apertura (OR): 15 / 30 / 60 minutos,
+"""Barrido del tamaño del rango de apertura (OR): 5, 10, 15, 30 y 60 minutos,
 sobre los 3 datasets sintéticos (A/B/C), dejando todo lo demás igual
 (filtro de volumen, confirmación por absorción CVD, gestión de riesgo).
 
@@ -34,7 +34,7 @@ DATASETS = {
     "B_soc": ("B — SOC/multifractal", generate_dataset_b),
     "C_regime": ("C — Regime-switching", generate_dataset_c),
 }
-OR_MINUTES_LIST = [15, 30, 60]
+OR_MINUTES_LIST = [5, 10, 15, 30, 60]
 
 
 def main():
@@ -79,7 +79,7 @@ def main():
     ]
     md_path = outdir / "or_window_sweep_report.md"
     with open(md_path, "w") as f:
-        f.write("# Barrido del rango de apertura (OR): 15 / 30 / 60 min\n\n")
+        f.write("# Barrido del rango de apertura (OR): 5/10/15/30/60 min\n\n")
         f.write(
             "Mismo motor (filtro de volumen + absorción CVD + SL/TP por swings), "
             "solo cambia cuántos minutos de la apertura de NY se usan para marcar "
@@ -98,13 +98,14 @@ def main():
         json.dump(rows, f, indent=2, default=str)
 
     # ---------------- Gráfico: Sortino por dataset y ventana de OR ----------------
-    fig, ax = plt.subplots(figsize=(9, 5))
-    width = 0.25
+    fig, ax = plt.subplots(figsize=(10, 5))
+    n_bars = len(OR_MINUTES_LIST)
+    width = 0.8 / n_bars
     x = np.arange(len(DATASETS))
     for i, or_minutes in enumerate(OR_MINUTES_LIST):
         vals = [next(r["sortino_ratio"] for r in rows if r["or_minutes"] == or_minutes and r["dataset"] == label)
                 for label, _ in DATASETS.values()]
-        ax.bar(x + (i - 1) * width, vals, width, label=f"OR {or_minutes} min")
+        ax.bar(x + (i - (n_bars - 1) / 2) * width, vals, width, label=f"OR {or_minutes} min")
     ax.set_xticks(x)
     ax.set_xticklabels([label for label, _ in DATASETS.values()], fontsize=8)
     ax.axhline(0, color="black", linewidth=0.8)
@@ -116,7 +117,7 @@ def main():
     fig.savefig(outdir / "sortino_by_or_window.png", dpi=140)
     plt.close(fig)
 
-    # ---------------- Gráfico: equity curves por dataset (3 líneas: 15/30/60) ----------------
+    # ---------------- Gráfico: equity curves por dataset (una línea por ventana de OR) ----------------
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.5), sharey=False)
     for ax, (key, (label, _)) in zip(axes, DATASETS.items()):
         for or_minutes in OR_MINUTES_LIST:

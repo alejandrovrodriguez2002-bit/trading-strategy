@@ -148,7 +148,7 @@ scripts/
   run_backtest.py   CLI principal: corre el backtest y genera el reporte
   run_dataset_comparison.py  corre la estrategia sobre los datasets A/B/C
                               y genera el reporte comparativo
-  run_or_window_sweep.py     barrido de la ventana de OR (15/30/60 min)
+  run_or_window_sweep.py     barrido de la ventana de OR (5/10/15/30/60 min)
                               sobre los datasets A/B/C
 tests/             tests unitarios (pytest)
 results/           output del último run (trades.csv, métricas, gráfico)
@@ -210,31 +210,33 @@ log, para ver las colas). Cada dataset también guarda su `trades.csv` y
 SINTÉTICOS — sirve para ver si la estrategia es frágil ante ciertos
 supuestos de mercado, no reemplaza el backtest con datos reales.
 
-### Barrido del rango de apertura: 15 / 30 / 60 min
+### Barrido del rango de apertura: 5 / 10 / 15 / 30 / 60 min
 
 `scripts/run_or_window_sweep.py` corre la misma estrategia (filtro de
 volumen + absorción CVD + SL/TP por swings) variando únicamente cuántos
 minutos de la apertura de NY se usan para marcar el high/low inicial —
-15, 30 y 60 minutos — sobre los mismos datasets A/B/C.
+5, 10, 15, 30 y 60 minutos — sobre los mismos datasets A/B/C.
 
 ```bash
 python scripts/run_or_window_sweep.py
 ```
 
 Genera en `results/or_window_sweep/`: `or_window_sweep_report.md` (tabla
-9x — 3 ventanas × 3 datasets — con todas las métricas),
+15x — 5 ventanas × 3 datasets — con todas las métricas),
 `sortino_by_or_window.png` (barras de Sortino por dataset/ventana) y
 `equity_curves_by_or_window.png` (equity curve de cada ventana, un panel
 por dataset).
 
-**Hallazgo** (sobre los datasets sintéticos): la ventana de **15 minutos
-es consistentemente la mejor o menos mala de las tres** en los 3 datasets
-— a medida que la ventana crece a 30 y 60 min, bajan tanto el número de
-trades como el Sortino/profit factor. Esto es consistente con la idea de
+**Hallazgo** (sobre los datasets sintéticos): a **menor** ventana de OR,
+**mejor** resultado — la relación es prácticamente monótona en los 3
+datasets. Más claro en el dataset C (regime-switching, el más realista de
+los tres): Sortino cae de **5.63 (5 min)** → 3.46 (10 min) → 1.81 (15 min)
+→ 0.43 (30 min) → 0.19 (60 min). Mismo patrón en A y B (la ventana más
+corta es la mejor o la menos mala). Esto es consistente con la idea de
 que el rango de apertura debe capturar la "explosión" inicial de la
-apertura de NY (que ya se valida aparte con el filtro de volumen) y no
-diluirse con una hora entera de operación, donde el nivel de apertura
-deja de representar bien la reacción inicial del mercado.
+apertura de NY (ya validada aparte con el filtro de volumen) y no
+diluirse con ventanas más largas, donde el nivel de apertura deja de
+representar bien la reacción inicial del mercado.
 
 ## Versión Pine Script (TradingView)
 
