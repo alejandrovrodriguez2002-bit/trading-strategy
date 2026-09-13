@@ -91,9 +91,10 @@ basada en swings (highs/lows) más cercanos.
    (no se dejan posiciones overnight). Máximo 1 trade/día (configurable).
 7. **Position sizing**: riesgo fijo por trade (% del equity, configurable
    en `config/strategy_config.yaml`), con slippage y comisión opcionales.
-8. **Filtro de POC semanal**: se descarta la entrada si el precio queda
-   demasiado cerca del Punto de Control (nivel de mayor volumen) del
-   perfil de volumen de la semana anterior completa — ver detalle abajo.
+8. **Filtro de bandas de desviación estándar semanal**: solo se acepta la
+   entrada si su distancia a la media (~VWAP) del perfil de volumen de la
+   semana anterior completa cae entre 1 y 2 desviaciones estándar — ver
+   detalle abajo.
 
 Todos los parámetros (minutos del OR, ventana de fractales, % de riesgo,
 slippage, etc.) están en `config/strategy_config.yaml`.
@@ -125,30 +126,34 @@ Parámetros en `config/strategy_config.yaml` bajo `volume_filter:`
 (`enabled`, `lookback_bars`, `multiplier`) — puedes desactivarlo
 (`enabled: false`) para comparar el efecto.
 
-### Filtro de Punto de Control (POC) semanal
+### Filtro de bandas de desviación estándar semanal (VWAP ± 1σ/2σ)
 
-Además se descarta cualquier entrada cuyo precio quede demasiado cerca
-del **Punto de Control (POC)** — el nivel de precio con más volumen
-operado — del perfil de volumen de la **semana ANTERIOR completa**
-(`src/volume_profile.py`, `src/strategy.py: _near_weekly_poc`). El POC
-es una zona de rotación/consolidación (donde más se negoció, así que el
-mercado tiende a "regresar" ahí en vez de tender con fuerza) — una
-entrada justo encima es de peor calidad.
+Además se calcula, por semana, la media y desviación estándar del precio
+ponderadas por volumen (~VWAP semanal, `src/volume_profile.py:
+weekly_stats`) y solo se acepta una entrada si su distancia a la media de
+la **semana ANTERIOR completa** cae **entre 1 y 2 desviaciones
+estándar** (`src/strategy.py: _in_valid_sd_band`). Se rechaza tanto lo
+demasiado pegado al centro (< 1σ — zona de rotación, bajo potencial de
+recorrido) como lo demasiado extendido (> 2σ — posible sobre-extensión).
+También se calcula el POC (Punto de Control, el nivel de mayor volumen)
+por semana como dato informativo.
 
 Cómo se calcula: precio típico por vela = (high+low+close)/3, ponderado
-por volumen, agrupado en bins de `bin_pct` % del precio medio de la
-semana; el POC es el bin con más volumen acumulado. Siempre se usa la
-semana ISO **anterior** a la del trade (nunca la semana en curso, que
-todavía no terminó) para no meter look-ahead.
+por volumen. Siempre se usa la semana ISO **anterior** a la del trade
+(nunca la semana en curso, que todavía no terminó) para no meter
+look-ahead.
 
 Parámetros en `config/strategy_config.yaml` bajo `poc_filter:`
-(`enabled`, `bin_pct`, `min_distance_pct`, default 0.3% de distancia
-mínima). Sobre los 6 meses reales de QQQ el filtro elimina un puñado de
-trades por combinación (p.ej. 78→75 en velas de 1m con OR de 5 min) pero
-**no cambia el resultado de fondo**: la estrategia sigue siendo negativa
-en las granularidades con muestra suficiente — es un filtro de calidad
-puntual, no una solución al problema estructural que muestra el
-backtest con datos reales (ver la sección de abajo).
+(`enabled`, `bin_pct`, `std_low_k`=1.0, `std_high_k`=2.0).
+
+Sobre los 6 meses reales de QQQ este filtro es bastante más agresivo que
+un simple umbral de distancia al POC: corta 60-70% de los trades (ej.
+78→23 en velas de 1m con OR de 5 min). Pero **no mejora el resultado —
+en varios casos lo empeora** (ver la tabla de resultados reales más
+abajo): la hipótesis de que un trade a 1-2σ de la media semanal es de
+mejor calidad no se confirma con estos datos. Es una prueba más de
+robustez, no una solución al problema estructural que muestra el
+backtest con datos reales.
 
 ## Métricas calculadas
 
@@ -311,40 +316,44 @@ en `src/data.py: load_csv` y `scripts/fetch_databento_candles.py`
 
 #### Resultado con 6 meses reales de QQQ (Databento) — el que de verdad importa
 
-125 días de trading, marzo-septiembre 2026, con el filtro de POC semanal
-ya activo (ver arriba). A diferencia de las pruebas con datos sintéticos
-(donde el dataset C de regime-switching mostraba Sortino positivo y
-claramente mejor con ventanas de OR cortas), **sobre datos reales de QQQ
-la estrategia da resultados negativos de forma consistente** en las
-granularidades con suficientes trades para ser estadísticamente
-relevantes (1m/2m/3m/5m — 26 a 93 trades cada una):
+125 días de trading, marzo-septiembre 2026, con el filtro de bandas de
+desviación estándar semanal ya activo (ver arriba). A diferencia de las
+pruebas con datos sintéticos (donde el dataset C de regime-switching
+mostraba Sortino positivo y claramente mejor con ventanas de OR cortas),
+**sobre datos reales de QQQ la estrategia da resultados negativos de
+forma consistente** en las granularidades con suficientes trades para
+ser mínimamente relevantes (1m/2m/3m/5m — 12 a 31 trades cada una, tras
+el filtro):
 
-| Intervalo | Mejor OR | Sortino | Profit factor | Retorno |
-|---|---|---|---|---|
-| 1m | 60 min | -2.42 | 0.66 | -9.46% |
-| 2m | 15 min | -0.87 | 0.88 | -4.24% |
-| 3m | 15 min | -0.001 | 0.98 | -0.39% |
-| 5m | 10 min | -1.56 | 0.66 | -3.47% |
+| Intervalo | Mejor OR | Sortino | Profit factor | Retorno | Trades |
+|---|---|---|---|---|---|
+| 1m | 60 min | -1.69 | 0.57 | -3.93% | 15 |
+| 2m | 5 min | -2.61 | 0.41 | -6.31% | 17 |
+| 3m | 15 min | -1.83 | 0.60 | -4.71% | 18 |
+| 5m | 30 min | -0.56 | 0.79 | -0.80% | 10 |
 
-Es decir: **en ningún caso con muestra suficiente (25+ trades) el
-profit factor llega a 1.0** (el más cercano, 3m/OR15, queda en 0.98 —
-prácticamente breakeven pero aún negativo). Los intervalos de
-10m/15m/30m/60m sí muestran Sortino positivo en algún punto, pero con
-0-8 trades en 6 meses — insuficiente para sacar ninguna conclusión (ver
-`results/or_window_sweep_real_qqq/`).
+**El filtro de bandas [1σ,2σ] corta 60-70% de los trades** respecto al
+filtro de POC anterior (ej. 1m/OR5: 78→23 trades), pero **no mejora el
+resultado — en varios casos lo empeora** (ej. 2m/OR30 pasó de profit
+factor 0.95 a 0.27). Es decir: la hipótesis de que "un trade que arranca
+entre 1 y 2 desviaciones estándar de la media semanal es de mejor
+calidad" **no se confirma** con estos datos — filtrar por esta banda no
+aísla setups mejores, solo reduce la muestra (y con muestras de 10-31
+trades ya es difícil sacar conclusiones sólidas de cualquier cambio).
 
 **Esto es justo la razón por la que insistí tanto en probar con datos
 reales antes de sacar conclusiones de los datasets sintéticos**: el
 patrón "ventana de OR más corta = mejor" que parecía tan claro con
 datos sintéticos (especialmente en el dataset C) **no se sostiene** con
-QQQ real — de hecho ahí la ventana más corta (5 min) es de las peores en
-todas las granularidades. Los generadores sintéticos, por bien
-calibrados que estén en momentos estadísticos (volatilidad, kurtosis,
-clustering), no capturan toda la microestructura real del mercado que
-esta estrategia intenta explotar. Antes de operar esto con dinero real
-hace falta revisar la lógica de la estrategia misma (parámetros de
-absorción, definición de sesgo, gestión de SL/TP) contra este resultado
-negativo, no solo ajustar la ventana de OR.
+QQQ real, y ahora tampoco se sostiene la hipótesis del filtro de bandas
+de desviación estándar. Los generadores sintéticos, por bien calibrados
+que estén en momentos estadísticos (volatilidad, kurtosis, clustering),
+no capturan toda la microestructura real del mercado que esta estrategia
+intenta explotar. Antes de seguir agregando filtros hace falta revisar
+la lógica de la estrategia misma (parámetros de absorción, definición de
+sesgo, gestión de SL/TP) contra este resultado negativo — añadir más
+condiciones de entrada sobre una base que ya pierde dinero reduce la
+muestra sin resolver el problema de fondo.
 
 ## Versión Pine Script (TradingView)
 
