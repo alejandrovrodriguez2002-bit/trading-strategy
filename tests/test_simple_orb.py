@@ -155,6 +155,94 @@ def test_fade_mode_shorts_a_high_breakout_with_sl_above_the_wick():
     assert t["sl"] > 103.0  # ancla en la mecha real (103), no en el nivel del OR (101)
 
 
+def test_session_poc_finds_bin_with_dominant_volume():
+    from src.simple_orb import _session_poc
+
+    idx = pd.date_range("2026-01-02 09:30", periods=5, freq="5min", tz="America/New_York")
+    rows = [
+        _bar(100, 101, 99, 100, 10),
+        _bar(100, 105, 99, 104, 10),
+        _bar(104, 104.5, 95, 96, 100000),  # domina el volumen, precio típico ~98.5
+        _bar(96, 97, 95.5, 96.5, 10),
+        _bar(96.5, 97, 96, 96.8, 10),
+    ]
+    df = pd.DataFrame(rows, index=idx)
+    poc = _session_poc(df, n_bins=30)
+    assert poc is not None
+    assert 97.5 < poc < 99.5  # cerca del precio típico de la vela dominante ((104.5+95+96)/3 = 98.5)
+
+
+def test_prev_session_range_source_fade_targets_opposite_extreme():
+    """range_source="prev_session": el rompimiento se mide contra el
+    high/low de TODA la sesión anterior (PDH/PDL), y en modo fade con
+    tp_mode="opposite_extreme" el objetivo es el lado NO roto de ese rango
+    (el low del día anterior, si se barrió el high)."""
+    day1 = [
+        _bar(100, 101, 99, 100, 1000),
+        _bar(100, 105, 99, 104, 1000),     # PDH = 105
+        _bar(104, 104.5, 95, 96, 1000),    # PDL = 95
+        _bar(96, 97, 95.5, 96.5, 1000),
+        _bar(96.5, 97, 96, 96.8, 1000),
+    ]
+    day2 = [
+        _bar(97, 98, 96.5, 97.5, 1000),
+        _bar(97.5, 98, 97, 97.8, 1000),
+        _bar(97.8, 106, 99, 105.5, 1000),   # barre el PDH (105) -> raw_direction long -> fade a short
+        _bar(105.5, 105.8, 95, 95.2, 1000),  # revierte hasta el PDL (95) -> TP del fade
+    ]
+    idx1 = pd.date_range("2026-01-02 09:30", periods=len(day1), freq="5min", tz="America/New_York")
+    idx2 = pd.date_range("2026-01-05 09:30", periods=len(day2), freq="5min", tz="America/New_York")
+    df = pd.concat([pd.DataFrame(day1, index=idx1), pd.DataFrame(day2, index=idx2)])
+
+    cfg = SimpleORBConfig(
+        range_source="prev_session", direction_mode="fade", tp_mode="opposite_extreme",
+        volume_filter_enabled=False, sl_buffer_pct=0.03, slippage_bps=0.0, session_only=False,
+    )
+    trades = generate_trades_simple(df, cfg)
+    assert len(trades) == 1
+    t = trades.iloc[0]
+    assert t["direction"] == "short"        # se barrió el PDH -> fade en short
+    assert t["or_high"] == 105.0 and t["or_low"] == 95.0  # PDH/PDL del día anterior
+    assert t["entry_price"] == 105.0        # relleno en el nivel del PDH
+    assert t["tp"] == 95.0                  # objetivo: el lado opuesto (PDL), no un múltiplo de R
+    assert t["exit_reason"] == "TP"
+
+
+def test_poc_tp_mode_targets_previous_session_point_of_control():
+    from src.simple_orb import _session_poc
+
+    day1 = [
+        _bar(100, 101, 99, 100, 10),
+        _bar(100, 105, 99, 104, 10),        # PDH = 105
+        _bar(104, 104.5, 95, 96, 100000),   # domina el volumen -> ancla el POC ~98.5
+        _bar(96, 97, 95.5, 96.5, 10),
+        _bar(96.5, 97, 96, 96.8, 10),       # PDL = 95
+    ]
+    day2 = [
+        _bar(97, 98, 96.5, 97.5, 1000),
+        _bar(97.5, 98, 97, 97.8, 1000),
+        _bar(97.8, 106, 99, 105.5, 1000),   # barre el PDH -> fade a short
+        _bar(105.5, 105.8, 96, 96.5, 1000),  # baja lo suficiente para tocar el POC como TP
+    ]
+    idx1 = pd.date_range("2026-01-02 09:30", periods=len(day1), freq="5min", tz="America/New_York")
+    idx2 = pd.date_range("2026-01-05 09:30", periods=len(day2), freq="5min", tz="America/New_York")
+    day1_df = pd.DataFrame(day1, index=idx1)
+    df = pd.concat([day1_df, pd.DataFrame(day2, index=idx2)])
+
+    expected_poc = _session_poc(day1_df, n_bins=30)
+
+    cfg = SimpleORBConfig(
+        range_source="prev_session", direction_mode="fade", tp_mode="poc",
+        volume_filter_enabled=False, sl_buffer_pct=0.03, slippage_bps=0.0, session_only=False,
+    )
+    trades = generate_trades_simple(df, cfg)
+    assert len(trades) == 1
+    t = trades.iloc[0]
+    assert t["direction"] == "short"
+    assert t["tp"] == expected_poc
+    assert t["exit_reason"] == "TP"
+
+
 def test_run_backtest_simple_builds_equity_curve():
     rows = [
         _bar(100, 101, 99, 100.5, 1000),

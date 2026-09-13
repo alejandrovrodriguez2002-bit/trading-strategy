@@ -40,9 +40,30 @@ Reglas:
      un pool de liquidez genuino (mismo filtro `_is_liquidity_level` /
      `_historical_swings` que la estrategia principal, reutilizados aquí
      por duck typing sobre los campos de `SimpleORBConfig`).
-5. Take profit: múltiplo fijo de R (`tp_r_multiple`) sobre el riesgo
-   definido por el SL -- no depende de swings futuros ni de absorción.
-6. Si no se toca ni el SL ni el TP, se cierra al cierre de la sesión.
+5. Take profit, tres modos seleccionables (`tp_mode`):
+   - "r_multiple" (default): múltiplo fijo de R (`tp_r_multiple`) sobre el
+     riesgo definido por el SL -- no depende de swings futuros ni de absorción.
+   - "opposite_extreme": el lado OPUESTO del rango de referencia (ver
+     `range_source` abajo) -- el objetivo estructural clásico de ICT/SMC
+     de "barrer un lado, apuntar al otro" (p.ej. barre el high del día
+     anterior, el objetivo es el low del día anterior).
+   - "poc": el Punto de Control (POC) de la sesión anterior -- el nivel de
+     precio con más volumen acumulado (ver `_session_poc`), como objetivo
+     alternativo/más cercano al "opposite_extreme".
+   En "opposite_extreme"/"poc", si el nivel objetivo ya quedó del lado
+   equivocado del precio de entrada (sin recorrido a favor), no hay trade
+   ese día.
+6. Rango de referencia (`range_source`): de dónde salen el high/low que
+   definen el rompimiento (y, en modo "fade", cuál lado se barre):
+   - "opening_range" (default): los primeros `or_minutes` de la sesión
+     (igual que las reglas 1-2 originales).
+   - "prev_session": el high/low de TODA la sesión de trading anterior
+     (PDH/PDL, "previous day high/low" -- un concepto de liquidez ICT/SMC
+     clásico: se asume que hay stops/órdenes reales descansando ahí). No
+     usa `or_minutes` ni el filtro de volumen (no hay "apertura" que
+     medir); la búsqueda de rompimiento arranca desde el open de la
+     sesión.
+7. Si no se toca ni el SL ni el TP, se cierra al cierre de la sesión.
 
 Esta es una hipótesis a validar, no una promesa de que "funciona": se
 prueba con un split honesto entrenamiento/prueba (ver
@@ -54,6 +75,7 @@ from __future__ import annotations
 import dataclasses
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 
 from .data import restrict_to_session
@@ -77,6 +99,8 @@ class SimpleORBConfig:
 
     or_minutes: int = 15
 
+    range_source: str = "opening_range"  # "opening_range" | "prev_session" (PDH/PDL)
+
     volume_filter_enabled: bool = True
     volume_lookback_bars: int = 20
     volume_multiplier: float = 1.5
@@ -86,7 +110,9 @@ class SimpleORBConfig:
     direction_mode: str = "breakout"  # "breakout" (continuación) | "fade" (reversión al toque del OR)
 
     sl_mode: str = "or_opposite"  # "or_opposite" | "liquidity"
+    tp_mode: str = "r_multiple"  # "r_multiple" | "opposite_extreme" | "poc"
     tp_r_multiple: float = 2.0
+    poc_bins: int = 30  # bins del histograma de volumen usado para aproximar el POC de la sesión anterior
 
     # solo se usan si sl_mode == "liquidity" (reutilizan la lógica de src/strategy.py)
     liquidity_filter_enabled: bool = True
@@ -204,6 +230,45 @@ def _prior_day_trend(df: pd.DataFrame, day_groups: list[tuple]) -> dict:
     return trend
 
 
+def _session_poc(session_df: pd.DataFrame, n_bins: int = 30) -> Optional[float]:
+    """Aproxima el Punto de Control (POC) de una sesión: el nivel de precio
+    con más volumen acumulado. Sin datos de tick real, se usa un histograma
+    de `n_bins` sobre el rango high-low de la sesión, asignando el volumen
+    de cada vela al bin de su precio típico (H+L+C)/3 -- la misma
+    aproximación estándar que el resto del proyecto usa para CVD/volumen
+    cuando no hay order flow real."""
+    if session_df.empty:
+        return None
+    lo = float(session_df["low"].min())
+    hi = float(session_df["high"].max())
+    if hi <= lo:
+        return None
+    typical = (session_df["high"] + session_df["low"] + session_df["close"]) / 3.0
+    bin_edges = np.linspace(lo, hi, n_bins + 1)
+    bin_idx = np.clip(np.digitize(typical.values, bin_edges) - 1, 0, n_bins - 1)
+    vol_per_bin = np.zeros(n_bins)
+    np.add.at(vol_per_bin, bin_idx, session_df["volume"].values)
+    best_bin = int(np.argmax(vol_per_bin))
+    return float((bin_edges[best_bin] + bin_edges[best_bin + 1]) / 2.0)
+
+
+def _prev_session_ref(df: pd.DataFrame, day_groups: list[tuple], poc_bins: int = 30) -> dict:
+    """date -> (prev_high, prev_low, prev_poc) de la sesión de trading
+    INMEDIATAMENTE anterior con datos (PDH/PDL + POC aproximado de esa
+    sesión). Ausente para el primer día (sin referencia)."""
+    ref = {}
+    for i, (date, start_pos, end_pos) in enumerate(day_groups):
+        if i == 0:
+            continue
+        _, prev_start, prev_end = day_groups[i - 1]
+        prev_slice = df.iloc[prev_start : prev_end + 1]
+        prev_high = float(prev_slice["high"].max())
+        prev_low = float(prev_slice["low"].min())
+        prev_poc = _session_poc(prev_slice, n_bins=poc_bins)
+        ref[date] = (prev_high, prev_low, prev_poc)
+    return ref
+
+
 def generate_trades_simple(df: pd.DataFrame, cfg: SimpleORBConfig) -> pd.DataFrame:
     """df debe incluir columnas open/high/low/close/volume, indexado en la
     tz de la sesión (no requiere CVD)."""
@@ -213,18 +278,35 @@ def generate_trades_simple(df: pd.DataFrame, cfg: SimpleORBConfig) -> pd.DataFra
     day_groups = _session_day_groups(df)
     trend_by_date = _prior_day_trend(df, day_groups) if cfg.trend_filter_enabled else {}
 
+    need_prev_session = cfg.range_source == "prev_session" or cfg.tp_mode == "poc"
+    prev_session_by_date = _prev_session_ref(df, day_groups, poc_bins=cfg.poc_bins) if need_prev_session else {}
+
     for date, start_pos, end_pos in day_groups:
-        or_result = _opening_range(df, start_pos, end_pos, cfg.or_minutes)
-        if or_result is None:
-            continue
-        or_high, or_low, or_end_pos = or_result
-        if or_end_pos > end_pos:
-            continue
-        if cfg.volume_filter_enabled and not _volume_surge_ok(df, start_pos, or_end_pos, cfg):
-            continue
+        pref = prev_session_by_date.get(date) if need_prev_session else None
+        poc_ref = pref[2] if pref is not None else None
+
+        if cfg.range_source == "opening_range":
+            or_result = _opening_range(df, start_pos, end_pos, cfg.or_minutes)
+            if or_result is None:
+                continue
+            or_high, or_low, or_end_pos = or_result
+            if or_end_pos > end_pos:
+                continue
+            if cfg.volume_filter_enabled and not _volume_surge_ok(df, start_pos, or_end_pos, cfg):
+                continue
+            search_start = or_end_pos
+        elif cfg.range_source == "prev_session":
+            if pref is None:
+                continue  # primer día del historial -> sin sesión anterior de referencia
+            or_high, or_low, _ = pref
+            if or_high <= or_low:
+                continue
+            search_start = start_pos  # sin "apertura" que esperar: el rango ya existe desde ayer
+        else:
+            raise ValueError(f"range_source desconocido: {cfg.range_source!r}")
 
         trades_today = 0
-        search_pos = or_end_pos
+        search_pos = search_start
         while trades_today < cfg.max_trades_per_day and search_pos <= end_pos:
             breakout = _find_breakout_fill(df, search_pos, end_pos, or_high, or_low)
             if breakout is None:
@@ -249,6 +331,26 @@ def generate_trades_simple(df: pd.DataFrame, cfg: SimpleORBConfig) -> pd.DataFra
             sl, tp, reason = _compute_sl_tp_simple(df, entry_pos, entry_price, direction, sl_anchor, cfg)
             if sl is None:
                 break
+
+            if cfg.tp_mode == "opposite_extreme":
+                # el objetivo es el lado del rango que NO se rompió -- se define por
+                # `raw_direction` (qué lado se rompió), no por `direction` (que en modo
+                # "fade" ya está invertida respecto al lado roto)
+                candidate_tp = or_low if raw_direction == "long" else or_high
+                if (direction == "long" and candidate_tp <= entry_price) or (
+                    direction == "short" and candidate_tp >= entry_price
+                ):
+                    break  # el lado opuesto del rango ya quedó del lado equivocado -> sin objetivo válido
+                tp = candidate_tp
+            elif cfg.tp_mode == "poc":
+                if poc_ref is None:
+                    break  # sin POC de la sesión anterior disponible (p.ej. primer día)
+                if (direction == "long" and poc_ref <= entry_price) or (
+                    direction == "short" and poc_ref >= entry_price
+                ):
+                    break  # el POC ya quedó del lado equivocado -> sin objetivo válido
+                tp = poc_ref
+            # else "r_multiple": se deja el tp calculado por _compute_sl_tp_simple
 
             exit_pos, raw_exit_price, exit_reason = _simulate_exit(df, entry_pos, end_pos, direction, sl, tp)
             exit_price = _apply_slippage(raw_exit_price, direction, "exit", cfg.slippage_bps)
