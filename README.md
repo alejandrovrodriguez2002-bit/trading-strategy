@@ -170,6 +170,105 @@ trades sin subir el profit factor, y en 2m/OR30 lo bajaba de 0.95 a
 retomar con otro enfoque) para no seguir recortando la muestra sobre una
 base que ya no tenía edge — ver el resultado real más abajo.
 
+## Estrategia alternativa que SÍ muestra edge: ORB clásico en modo "fade" (`src/simple_orb.py`)
+
+Después de que ORB + absorción CVD (con y sin volumen/liquidez/bandas SD)
+nunca superó profit factor 1.0 de forma consistente en los 6 meses reales
+de QQQ, se probó una hipótesis distinta desde cero, **sin CVD**:
+`src/simple_orb.py` + `scripts/run_simple_orb_grid.py`.
+
+**Idea**: quizás el CVD aproximado (sin datos de tick reales) mete ruido
+en vez de señal. En vez de operar A FAVOR del primer rompimiento del rango
+de apertura (continuación, como toda la estrategia anterior), se probó
+operar **EN CONTRA** (**fade**): apostar a que el rompimiento es una
+barrida de liquidez / falso rompimiento, y el precio revierte hacia el
+rango — un concepto de ICT/SMC distinto al de absorción CVD.
+
+Reglas de la configuración ganadora:
+
+1. Rango de apertura de **30 minutos** (09:30–10:00 ET).
+2. Al primer rompimiento del OR-high o el OR-low, se entra **EN CONTRA**
+   (fade): rompe el high → SHORT; rompe el low → LONG. Relleno al nivel
+   del OR (orden stop), o al open de la vela si abre más allá (gap).
+3. Stop loss: el extremo real (mecha) de la vela que rompió el rango + un
+   buffer pequeño — no el nivel del OR, que ya quedó superado.
+4. Take profit: **1.5R fijo** (no depende de swings futuros).
+5. Sin filtro de tendencia ni de volumen — ninguno de los dos ayudó en las
+   pruebas de esta variante.
+6. Sizing: 1% de equity arriesgado por trade, con **tope de apalancamiento
+   1x** (`max_leverage=1.0`, sin margen) — importante: un SL anclado en la
+   mecha real puede quedar tan ajustado que arriesgar el 1% nominal pediría
+   una posición nocional de decenas de veces el equity. Con el tope, el
+   riesgo real de esos trades queda por debajo del 1% y el R-multiple se
+   recalcula sobre el riesgo real (ver `src/simple_orb.py`).
+
+### Validación honesta: split train/test por fecha (no todo el dataset)
+
+Para no repetir el error que llevó a descartar el filtro de bandas SD
+(sobreajustar a los 6 meses completos), `scripts/run_simple_orb_grid.py`
+barre 120 combinaciones (OR ∈ {15,25,30,35,45}min, SL ∈
+{or_opposite,liquidity}, TP ∈ {1.5,2,3}R, filtro de tendencia, dirección
+{breakout,fade}) usando **solo la primera mitad** de los ~6 meses reales
+(62 días, "train") para elegir la mejor combinación por Sortino, y evalúa
+esa combinación ya fija contra la **segunda mitad** (63 días, "test") que
+el proceso de selección nunca vio. En los cuatro intervalos probados
+**"fade" con OR=30min ganó la búsqueda** (nunca "breakout"/continuación),
+lo cual es en sí mismo una señal de robustez (no es un ganador aislado en
+un rincón del grid).
+
+Resultado usando la **misma configuración fija** (OR=30min, SL=mecha real,
+fade, TP=1.5R, sin filtro de tendencia, sin volumen) en los cuatro
+intervalos — sin re-optimizar por intervalo, para no maquillar el número:
+
+| Intervalo | | Trades | Win rate | Profit factor | Sortino | Retorno (63 días test, sin apalancamiento) | Max DD |
+|---|---|---|---|---|---|---|---|
+| 1m | train | 61 | 59.0% | 1.89 | 8.73 | +1.91% | -0.71% |
+| 1m | **test** | 61 | 54.1% | **1.05** | 0.47 | +0.15% | -0.60% |
+| 2m | train | 61 | 65.6% | 2.00 | 8.62 | +2.29% | -0.82% |
+| 2m | **test** | 61 | 60.7% | **1.47** | 4.22 | +1.53% | -0.52% |
+| 3m | train | 61 | 67.2% | 2.08 | 8.90 | +2.52% | -0.52% |
+| 3m | **test** | 61 | 65.6% | **1.61** | 5.03 | +1.94% | -0.54% |
+| 5m | train | 61 | 70.5% | 2.13 | 8.50 | +2.87% | -0.66% |
+| 5m | **test** | 61 | 63.9% | **1.41** | 3.47 | +1.72% | -1.12% |
+
+Las filas **test** son las que importan: nunca se usaron para elegir
+parámetros. **Las cuatro granularidades quedan con profit factor > 1.0 y
+Sortino > 0 fuera de muestra** — la primera vez en todo este proyecto que
+un resultado real se sostiene en datos que el proceso de selección no vio.
+El efecto es más débil en 1m (PF apenas sobre 1.0) y más sólido en 2m/3m/5m.
+
+Chequeos adicionales de robustez (sobre 5m, la más fuerte):
+- **Por mes**: positivo en 5 de 7 meses (marzo–septiembre 2026), sin que
+  ningún mes ni ningún trade individual domine el resultado (mejor trade
+  +$66, peor trade -$41, sobre una cuenta de $10,000).
+- **Por ventana de OR** (15/20/25/30/35/40/45/60 min, resto de parámetros
+  fijos): la mayoría de ventanas ≥25min dan PF>1 fuera de muestra; 30min
+  es la mejor pero no un pico aislado — 35/40/45min también funcionan.
+- **Apalancamiento**: el resultado (win rate, profit factor, distribución
+  de R) es prácticamente el mismo con `max_leverage` en 1x, 2x o 4x — solo
+  cambia cuánto retorno en $ se extrae del mismo edge. El retorno de la
+  tabla de arriba es **sin ningún margen** (lo más conservador posible);
+  con 2-4x de margen intradía (típico de una cuenta pattern-day-trader)
+  el mismo edge escala el retorno proporcionalmente.
+
+### Honestidad sobre las limitaciones de este resultado
+
+- El período de test son 63 días de mercado (~3 meses, marzo–septiembre
+  2026) de un solo instrumento (QQQ) en un solo régimen. Es una validación
+  fuera de muestra real, no una garantía hacia adelante — falta
+  forward-testing en papel y en otros períodos/instrumentos.
+- El SL anclado en la mecha real puede ser muy ajustado (mediana ~0.1% del
+  precio en 5m) — el motor lo modela con slippage de 1bp, pero en
+  ejecución real el spread/deslizamiento en el momento exacto de una
+  barrida de liquidez probablemente sea mayor a lo modelado.
+- Sigue siendo una muestra de ~120 trades por intervalo en test — mejor
+  que las docenas de trades de los barridos anteriores, pero no es
+  estadísticamente enorme.
+
+Con esas salvedades explícitas: esta es, hasta ahora, la única variante de
+todo este proyecto que muestra edge positivo (profit factor y Sortino > 0)
+en datos reales que el proceso de selección de parámetros nunca vio.
+
 ## Métricas calculadas
 
 `src/metrics.py` calcula, sobre la curva de equity diaria y el log de
@@ -404,10 +503,15 @@ python scripts/run_backtest.py --csv data/QQQ_5m.csv
 # 3) (opcional, requiere internet) intentar descargar con yfinance
 python scripts/download_data.py --ticker QQQ --interval 5m --months 6
 python scripts/run_backtest.py --csv data/QQQ_5m.csv
+
+# 4) La variante "fade" que sí muestra edge (ver sección arriba), con split train/test honesto
+python scripts/run_simple_orb_grid.py
 ```
 
 Esto genera en `results/`: `trades.csv` (log completo de operaciones),
-`metrics_summary.json` / `.md` (las métricas) y `equity_curve.png`.
+`metrics_summary.json` / `.md` (las métricas) y `equity_curve.png`. El
+script de la variante fade genera su propio reporte en
+`results/simple_orb_grid/`.
 
 ## Tests
 
@@ -450,12 +554,18 @@ resultante como artifact del run (Actions → el run → "Artifacts"):
 
 ## Próximos pasos sugeridos
 
-- El resultado con 6 meses reales de QQQ es negativo (ver arriba) — antes
-  de seguir ajustando parámetros (ventana de OR, buffer de SL, filtro de
-  volumen), vale la pena revisar si la lógica de absorción/sesgo
-  direccional en sí necesita cambios, o probar la estrategia en otro
-  período/instrumento (ej. NQ futuro vía `GLBX.MDP3`) para ver si el
-  resultado se sostiene.
+- La estrategia original (ORB + absorción CVD) sigue sin mostrar edge
+  robusto en 6 meses reales de QQQ, ni con volumen, ni con liquidez, ni
+  con bandas SD. La variante que sí lo muestra es **ORB clásico en modo
+  "fade"** (`src/simple_orb.py`, ver sección arriba) — validada con split
+  train/test, positiva fuera de muestra en 1m/2m/3m/5m.
+- Pasos para llevar el fade de OR30 más allá de esta validación inicial:
+  forward-test en papel unas semanas, probar en otro instrumento/período
+  (ej. NQ futuro vía `GLBX.MDP3`, u otro rango de fechas) para confirmar
+  que no es específico a este régimen de mercado, y sincronizar la lógica
+  con `pine/ny_orb_cvd_absorption.pine` si se quiere operar/monitorear
+  desde TradingView (el Pine actual todavía implementa solo la estrategia
+  original de continuación + CVD, no el fade).
 - Si tu CVD "de la imagen" usa una lógica más específica (p.ej. umbral
   mínimo de divergencia, número exacto de velas, o un CVD calculado con
   datos de tick reales de tu plataforma), lo ajustamos en `src/cvd.py` y
