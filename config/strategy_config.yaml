@@ -25,6 +25,19 @@ volume_filter:
   lookback_bars: 20        # velas previas usadas como línea base de volumen "normal"
   multiplier: 1.5          # el volumen del OR debe ser >= multiplier x la línea base
 
+liquidity_filter:
+  # Concepto de liquidez (ICT/SMC): un swing high/low formado con volumen
+  # alto es un "pool de liquidez" (muchos stops/órdenes descansando ahí),
+  # y por lo tanto un nivel más confiable para anclar el stop loss. Solo
+  # se toma un SHORT si su swing high de referencia (el SL) tuvo volumen
+  # alto al formarse; solo se toma un LONG si su swing low de referencia
+  # lo tuvo. Si el swing más cercano no califica, se busca el siguiente
+  # más cercano que sí tenga volumen alto; si ninguno califica, no hay
+  # trade ese día (SL sin un nivel de liquidez real detrás).
+  enabled: true
+  lookback_bars: 20        # velas previas al swing usadas como línea base de volumen "normal"
+  multiplier: 1.5          # el volumen de la vela del swing debe ser >= multiplier x la línea base
+
 absorption:
   # Búsqueda de pivotes (fractales de 3 velas) dentro del pullback tras el rompimiento
   pivot_lookback: 1        # velas a cada lado para confirmar un pivote (3 velas totales)

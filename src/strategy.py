@@ -19,7 +19,12 @@ Reglas implementadas (ver README.md para el detalle y los supuestos documentados
    original (continuación), en la apertura de la vela siguiente al cierre
    que confirma el segundo pivote.
 4. Stop loss: swing (high/low histórico) más cercano al precio de entrada,
-   en el lado contrario a la operación.
+   en el lado contrario a la operación — y que además sea un POOL DE
+   LIQUIDEZ genuino: SHORT solo se toma si ese swing HIGH de referencia se
+   formó con volumen alto (concepto ICT/SMC — muchos stops/órdenes
+   descansando ahí); LONG solo si el swing LOW de referencia lo tuvo. Si
+   el swing más cercano no califica, se prueba el siguiente más cercano
+   (ver `_is_liquidity_level`).
 5. Take profit: el SEGUNDO swing más cercano en el lado a favor de la
    operación (se salta el más cercano).
 6. Si no se toca ni el SL ni el TP, se cierra en el cierre de la sesión
@@ -40,7 +45,7 @@ import numpy as np
 import pandas as pd
 
 from .config import Config
-from .swings import Pivot, find_pivots, nearest_levels
+from .swings import Pivot, find_pivots, nearest_levels, nearest_pivots
 
 
 @dataclasses.dataclass
@@ -107,6 +112,28 @@ def _volume_surge_ok(df: pd.DataFrame, start_pos: int, or_end_pos: int, cfg: Con
 
     or_volume = df["volume"].iloc[start_pos:or_end_pos].max()
     return bool(or_volume >= cfg.volume_multiplier * baseline)
+
+
+def _is_liquidity_level(df: pd.DataFrame, abs_idx: int, cfg: Config) -> bool:
+    """Concepto de liquidez (ICT/SMC): un swing high/low formado con volumen
+    considerable respecto al reciente es un "pool de liquidez" genuino
+    (muchos stops/órdenes descansando ahí), no solo ruido de precio de una
+    vela cualquiera. Se usa para exigir que el swing usado como stop loss
+    sea un nivel de liquidez real: SHORT -> el swing HIGH de referencia debe
+    tener volumen alto; LONG -> el swing LOW de referencia debe tenerlo.
+    """
+    if not cfg.liquidity_filter_enabled:
+        return True
+
+    lookback_start = max(0, abs_idx - cfg.liquidity_lookback_bars)
+    if lookback_start == abs_idx:
+        return True  # no hay suficiente historia previa -> se deja pasar
+
+    baseline = df["volume"].iloc[lookback_start:abs_idx].mean()
+    if baseline <= 0:
+        return True
+
+    return bool(df["volume"].iloc[abs_idx] >= cfg.liquidity_multiplier * baseline)
 
 
 
@@ -192,26 +219,32 @@ def _historical_swings(df: pd.DataFrame, entry_pos: int, cfg: Config) -> list[Pi
     hist = df.iloc[start_pos:entry_pos]  # excluye la vela de entrada (aún no cierra)
     if len(hist) < (2 * cfg.swing_fractal_window + 1):
         return []
-    return find_pivots(hist, window=cfg.swing_fractal_window)
+    pivots = find_pivots(hist, window=cfg.swing_fractal_window)
+    for p in pivots:
+        p.idx += start_pos  # posición relativa a `hist` -> posición absoluta en `df`
+    return pivots
 
 
 def _compute_sl_tp(df: pd.DataFrame, entry_pos: int, entry_price: float, direction: str, cfg: Config):
     pivots = _historical_swings(df, entry_pos, cfg)
     buffer = entry_price * cfg.sl_buffer_pct / 100.0
 
-    if direction == "long":
-        sl_candidates = nearest_levels(pivots, "low", entry_price, "below", n=1)
-        tp_candidates = nearest_levels(pivots, "high", entry_price, "above", n=2)
-        sl = (sl_candidates[0] - buffer) if sl_candidates else None
-        tp = tp_candidates[1] if len(tp_candidates) >= 2 else (tp_candidates[0] if tp_candidates else None)
-    else:
-        sl_candidates = nearest_levels(pivots, "high", entry_price, "above", n=1)
-        tp_candidates = nearest_levels(pivots, "low", entry_price, "below", n=2)
-        sl = (sl_candidates[0] + buffer) if sl_candidates else None
-        tp = tp_candidates[1] if len(tp_candidates) >= 2 else (tp_candidates[0] if tp_candidates else None)
+    sl_kind = "low" if direction == "long" else "high"
+    sl_side = "below" if direction == "long" else "above"
+    tp_kind = "high" if direction == "long" else "low"
+    tp_side = "above" if direction == "long" else "below"
 
-    if sl is None:
-        return None, None, "sin swing de SL disponible"
+    # SL: swing más cercano en contra que además sea un pool de liquidez
+    # genuino (volumen alto al formarse) — si el más cercano no califica,
+    # se prueba el siguiente más cercano, y así sucesivamente.
+    sl_pivot_candidates = nearest_pivots(pivots, sl_kind, entry_price, sl_side, n=len(pivots) or 1)
+    sl_pivot = next((p for p in sl_pivot_candidates if _is_liquidity_level(df, p.idx, cfg)), None)
+    if sl_pivot is None:
+        return None, None, "sin swing de SL con liquidez suficiente"
+    sl = (sl_pivot.price - buffer) if direction == "long" else (sl_pivot.price + buffer)
+
+    tp_candidates = nearest_levels(pivots, tp_kind, entry_price, tp_side, n=2)
+    tp = tp_candidates[1] if len(tp_candidates) >= 2 else (tp_candidates[0] if tp_candidates else None)
 
     risk = abs(entry_price - sl)
     if risk <= 0:

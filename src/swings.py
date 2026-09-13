@@ -51,3 +51,16 @@ def nearest_levels(
     else:
         candidates = sorted((p for p in prices if p < reference_price), reverse=True)
     return candidates[:n]
+
+
+def nearest_pivots(
+    pivots: list[Pivot], kind: str, reference_price: float, side: str, n: int = 2
+) -> list[Pivot]:
+    """Igual que `nearest_levels` pero devuelve los objetos Pivot completos
+    (con su posición en el DataFrame), necesario cuando además del precio
+    hace falta consultar otro dato de esa vela (p.ej. el volumen, para el
+    filtro de liquidez)."""
+    candidates = [p for p in pivots if p.kind == kind and (p.price > reference_price if side == "above" else p.price < reference_price)]
+    candidates.sort(key=lambda p: p.price, reverse=(side == "below"))
+    return candidates[:n]
+

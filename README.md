@@ -83,7 +83,9 @@ basada en swings (highs/lows) más cercanos.
      que confirma el segundo pivote (evita look-ahead).
 4. **Stop loss**: el swing (high/low histórico, fractal de N velas,
    configurable) más cercano al precio de entrada, del lado contrario a
-   la operación.
+   la operación — y que además sea un **pool de liquidez genuino** (ver
+   "Filtro de liquidez" abajo): si el más cercano no tuvo volumen alto al
+   formarse, se prueba el siguiente más cercano que sí lo tenga.
 5. **Take profit**: el **segundo** swing más cercano (se salta el más
    cercano) del lado a favor de la operación. Si no hay un segundo swing
    disponible, se usa un fallback de 2R documentado en el código.
@@ -121,6 +123,39 @@ le interesa a esta estrategia.
 Parámetros en `config/strategy_config.yaml` bajo `volume_filter:`
 (`enabled`, `lookback_bars`, `multiplier`) — puedes desactivarlo
 (`enabled: false`) para comparar el efecto.
+
+### Filtro de liquidez (concepto ICT/SMC)
+
+El swing usado como stop loss debe ser un **pool de liquidez genuino**,
+no una vela de ruido cualquiera. Concretamente (`src/strategy.py:
+_is_liquidity_level`): un swing high/low se acepta como referencia de SL
+solo si el volumen de la vela que lo formó fue al menos `multiplier`
+veces el volumen promedio de las `lookback_bars` velas previas (misma
+lógica que el filtro de volumen de apertura, aplicada aquí a cualquier
+swing histórico). La idea (ICT/SMC): un swing formado con volumen alto
+tiene muchos stops/órdenes reales descansando ahí — es un nivel que el
+mercado "recuerda" — mientras que un swing de bajo volumen es solo ruido
+de precio sin nada detrás.
+
+Aplicación por dirección: un **SHORT** solo se toma si su swing HIGH de
+referencia (el nivel de SL, arriba del precio) tuvo volumen alto al
+formarse; un **LONG** solo si su swing LOW de referencia (abajo del
+precio) lo tuvo. Si el swing más cercano no califica, se prueba el
+siguiente más cercano que sí tenga volumen alto; si ninguno califica, no
+hay trade ese día.
+
+Parámetros en `config/strategy_config.yaml` bajo `liquidity_filter:`
+(`enabled`, `lookback_bars`, `multiplier`).
+
+**Resultado sobre los 6 meses reales de QQQ**: mixto. En velas de **1
+minuto mejora bastante** (mejor combinación pasa de Sortino -3.18 a
+**-0.52**, profit factor 0.59→0.89, con OR=60min) — la granularidad más
+fina es también donde más ruido de precio sin volumen real hay, así que
+tiene sentido que filtrar por liquidez ayude más ahí. Pero en **2m/3m/5m
+el filtro no ayuda o empeora ligeramente** el mejor caso de cada
+intervalo (ver la tabla de resultados reales más abajo). No es una
+solución completa al problema de fondo, pero es la primera modificación
+que muestra una mejora real y sustancial en alguna granularidad.
 
 ### Filtro probado y descartado: bandas de desviación estándar semanal
 
@@ -296,42 +331,46 @@ en `src/data.py: load_csv` y `scripts/fetch_databento_candles.py`
 #### Resultado con 6 meses reales de QQQ (Databento) — el que de verdad importa
 
 125 días de trading, marzo-septiembre 2026, con el motor actual (filtro
-de volumen de apertura, sin el filtro de bandas de desviación estándar
-que se probó y se retiró — ver arriba). A diferencia de las pruebas con
-datos sintéticos (donde el dataset C de regime-switching mostraba
-Sortino positivo y claramente mejor con ventanas de OR cortas), **sobre
-datos reales de QQQ la estrategia da resultados negativos de forma
-consistente** en las granularidades con suficientes trades para ser
-estadísticamente relevantes (1m/2m/3m/5m — 26 a 97 trades cada una):
+de volumen de apertura + filtro de liquidez en el SL; sin el filtro de
+bandas de desviación estándar que se probó y se retiró — ver arriba). A
+diferencia de las pruebas con datos sintéticos (donde el dataset C de
+regime-switching mostraba Sortino positivo y claramente mejor con
+ventanas de OR cortas), **sobre datos reales de QQQ la estrategia sigue
+dando resultados negativos** en las granularidades con suficientes
+trades para ser relevantes (1m/2m/3m/5m — 26 a 91 trades cada una),
+aunque el filtro de liquidez mejora notablemente la de 1 minuto:
 
 | Intervalo | Mejor OR | Sortino | Profit factor | Retorno | Trades |
 |---|---|---|---|---|---|
-| 1m | 60 min | -3.18 | 0.59 | -13.06% | 65 |
-| 2m | 30 min | -0.29 | 0.95 | -1.71% | 66 |
-| 3m | 15 min | -0.23 | 0.95 | -1.24% | 53 |
-| 5m | 10 min | -1.13 | 0.76 | -2.73% | 32 |
+| 1m | 60 min | **-0.52** | **0.89** | -1.36% | 62 |
+| 2m | 15 min | -2.00 | 0.65 | -5.27% | 63 |
+| 3m | 30 min | -2.04 | 0.57 | -3.84% | 40 |
+| 5m | 5 min | -1.71 | 0.58 | -3.10% | 26 |
 
-Es decir: **en ningún caso con muestra suficiente (26+ trades) el
-profit factor supera 1.0** (los más cercanos, 2m/OR30 y 3m/OR15, quedan
-en 0.95 — casi breakeven pero aún negativos). Los intervalos de
-10m/15m/30m/60m sí muestran Sortino positivo en algún punto, pero con
-0-8 trades en 6 meses — insuficiente para sacar ninguna conclusión (ver
+Es decir: el profit factor sigue sin superar 1.0 en ningún caso con
+muestra suficiente, pero en **1 minuto pasó de 0.59 a 0.89** — la mejora
+más grande que hemos visto de cualquier ajuste hasta ahora, aunque no
+alcanza breakeven. En 2m/3m/5m el filtro no mueve mucho la aguja (y en
+algún caso la empeora ligeramente respecto al baseline sin liquidez).
+Los intervalos de 10m/15m/30m/60m muestran Sortino positivo en algún
+punto (hasta 7.95 en 10m/OR15), pero con 3-8 trades en 6 meses —
+insuficiente para sacar ninguna conclusión (ver
 `results/or_window_sweep_real_qqq/`).
 
 **Esto es justo la razón por la que insistí tanto en probar con datos
 reales antes de sacar conclusiones de los datasets sintéticos**: el
 patrón "ventana de OR más corta = mejor" que parecía tan claro con
 datos sintéticos (especialmente en el dataset C) **no se sostiene** con
-QQQ real — de hecho ahí la ventana más corta (5 min) es de las peores en
-todas las granularidades. Los generadores sintéticos, por bien
-calibrados que estén en momentos estadísticos (volatilidad, kurtosis,
-clustering), no capturan toda la microestructura real del mercado que
-esta estrategia intenta explotar. Ya se probaron dos filtros de calidad
-de entrada distintos (umbral fijo al POC semanal, bandas de desviación
-estándar) y ninguno resuelve el problema de fondo — antes de seguir
-agregando filtros hace falta revisar la lógica central de la estrategia
-(parámetros de absorción, definición de sesgo, gestión de SL/TP) contra
-este resultado negativo.
+QQQ real. Los generadores sintéticos, por bien calibrados que estén en
+momentos estadísticos (volatilidad, kurtosis, clustering), no capturan
+toda la microestructura real del mercado que esta estrategia intenta
+explotar. De los tres filtros de calidad de entrada probados (umbral
+fijo al POC semanal, bandas de desviación estándar, liquidez en el SL),
+el de liquidez es el primero que muestra una mejora real y sustancial
+— pero solo en una granularidad. Sigue sin haber una combinación con
+edge positivo confirmado en datos reales; antes de operar esto con
+dinero real hace falta seguir iterando sobre la lógica central
+(parámetros de absorción, definición de sesgo, gestión de SL/TP).
 
 ## Versión Pine Script (TradingView)
 

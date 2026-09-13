@@ -23,6 +23,10 @@ class Config:
     volume_lookback_bars: int = 20
     volume_multiplier: float = 1.5
 
+    liquidity_filter_enabled: bool = True
+    liquidity_lookback_bars: int = 20
+    liquidity_multiplier: float = 1.5
+
     pivot_lookback: int = 1
     max_bars_after_breakout: Optional[int] = None
     invalidate_on_full_retrace: bool = True
@@ -55,6 +59,9 @@ class Config:
             volume_filter_enabled=raw.get("volume_filter", {}).get("enabled", True),
             volume_lookback_bars=raw.get("volume_filter", {}).get("lookback_bars", 20),
             volume_multiplier=raw.get("volume_filter", {}).get("multiplier", 1.5),
+            liquidity_filter_enabled=raw.get("liquidity_filter", {}).get("enabled", True),
+            liquidity_lookback_bars=raw.get("liquidity_filter", {}).get("lookback_bars", 20),
+            liquidity_multiplier=raw.get("liquidity_filter", {}).get("multiplier", 1.5),
             pivot_lookback=raw["absorption"]["pivot_lookback"],
             max_bars_after_breakout=raw["absorption"]["max_bars_after_breakout"],
             invalidate_on_full_retrace=raw["absorption"]["invalidate_on_full_retrace"],
