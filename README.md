@@ -159,7 +159,9 @@ scripts/
 tests/             tests unitarios (pytest)
 results/           output del último run (trades.csv, métricas, gráfico)
   comparison/      reporte comparativo A/B/C (ver abajo)
-  or_window_sweep_real/  barrido de OR sobre datos reales (ver abajo)
+  or_window_sweep_real_qqq/  barrido de OR sobre 6 meses reales de QQQ
+                              (ver abajo) — el resultado que importa
+  or_window_sweep_real_ixic/ idem sobre ^IXIC (Yahoo, historial corto)
   or_window_sweep/ reporte del barrido de ventana de OR (ver abajo)
 .github/workflows/
   fetch_nasdaq_candles.yml     corre fetch_nasdaq_candles.py en un runner
@@ -250,41 +252,71 @@ apertura de NY (ya validada aparte con el filtro de volumen) y no
 diluirse con ventanas más largas, donde el nivel de apertura deja de
 representar bien la reacción inicial del mercado.
 
-### Con datos REALES: NASDAQ Composite (^IXIC)
+### Con datos REALES: QQQ (Databento, ~6 meses) y NASDAQ Composite (^IXIC, Yahoo)
 
 `scripts/run_or_window_sweep_real.py` corre el mismo barrido de OR
-(5/10/15/30/60 min) pero sobre velas reales del índice NASDAQ Composite
-(^IXIC), en 1m/2m/3m/5m, en vez de los datasets sintéticos:
+(5/10/15/30/60 min) sobre velas reales, en vez de los datasets
+sintéticos. Soporta dos fuentes vía `--source`:
 
 ```bash
-python scripts/run_or_window_sweep_real.py
+python scripts/run_or_window_sweep_real.py                # QQQ (Databento), ~6 meses — default
+python scripts/run_or_window_sweep_real.py --source ixic  # ^IXIC (Yahoo), historial corto
 ```
 
-Al cargar estos datos aparecieron y se corrigieron dos bugs reales en
-`src/data.py: load_csv` (afectan a cualquier CSV de Yahoo Finance, no solo
-a este):
+Al cargar estos datos aparecieron y se corrigieron **tres bugs reales**
+en `src/data.py: load_csv` y `scripts/fetch_databento_candles.py`
+(afectan a cualquier CSV real que se cargue, no solo a estos):
 
-1. **Columna `close` duplicada**: los CSV de Yahoo traen `Close` y `Adj
-   Close` a la vez, y ambas se mapeaban a `close` → quedaban dos columnas
-   con el mismo nombre, lo que rompía cualquier resta entre columnas (el
-   cálculo del CVD, por ejemplo) con un `ValueError: cannot reindex on an
-   axis with duplicate labels`. Ahora se deduplica quedándose con la
+1. **Columna `close` duplicada** (Yahoo): los CSV traen `Close` y `Adj
+   Close` a la vez, ambas se mapeaban a `close` → rompía cualquier resta
+   entre columnas (el cálculo del CVD) con `ValueError: cannot reindex
+   on an axis with duplicate labels`. Se deduplica quedándose con la
    primera.
-2. **Volumen de la primera vela del día en 0**: Yahoo suele reportar
-   volumen 0 en el primer minuto de cada sesión (un artefacto conocido de
-   cómo agregan el print de apertura) — justo la vela que más le importa
-   a esta estrategia. Se corrige (`_fix_yahoo_zero_open_volume`)
-   reemplazándola por el volumen de la vela siguiente del mismo día.
+2. **Volumen de la primera vela del día en 0** (Yahoo): artefacto
+   conocido de Yahoo en datos intradía — justo la vela que más le
+   importa a esta estrategia. Se corrige (`_fix_yahoo_zero_open_volume`)
+   con el volumen de la vela siguiente del mismo día.
+3. **Databento tiene ~1 día de retraso en su feed histórico**: pedir
+   datos hasta "hoy" devuelve `422 data_end_after_available_end`. Se
+   ajustó el script para pedir hasta ayer por defecto.
 
-**⚠️ Historial real disponible: muy corto** (límite de Yahoo, no del
-código — ver la sección de limitaciones arriba): ~20 días para 2m/5m,
-~4 días para 1m/3m. Con tan pocos días, cada combinación tiene entre 0 y
-10 trades — el reporte en `results/or_window_sweep_real/` corre sin
-errores y sirve como prueba de que el motor funciona con datos reales,
-pero los Sortino/Sharpe ahí (algunos rondando ±7 o +17 con 1-3 trades)
-**no son estadísticamente significativos** — para una lectura confiable
-hace falta bastante más historial del que Yahoo entrega gratis
-intradía (ver "Próximos pasos sugeridos").
+#### Resultado con 6 meses reales de QQQ (Databento) — el que de verdad importa
+
+125 días de trading, marzo-septiembre 2026, 1 a 97 trades por
+combinación según la granularidad. A diferencia de las pruebas con
+datos sintéticos (donde el dataset C de regime-switching mostraba
+Sortino positivo y claramente mejor con ventanas de OR cortas), **sobre
+datos reales de QQQ la estrategia da resultados negativos de forma
+consistente** en las granularidades con suficientes trades para ser
+estadísticamente relevantes (1m/2m/3m/5m — 26 a 97 trades cada una):
+
+| Intervalo | Mejor OR | Sortino | Profit factor | Retorno |
+|---|---|---|---|---|
+| 1m | 60 min | -3.18 | 0.59 | -13.1% |
+| 2m | 30 min | -0.29 | 0.95 | -1.7% |
+| 3m | 15 min | -0.23 | 0.95 | -1.2% |
+| 5m | 10 min | -1.13 | 0.76 | -2.7% |
+
+Es decir: **en ningún caso con muestra suficiente (26+ trades) el
+profit factor supera 1.0** — la estrategia pierde dinero de forma
+consistente sobre este período real, con las peores cifras justamente
+en 1 minuto (Sortino -3.2 a -6.5, profit factor 0.33-0.59). Los
+intervalos de 10m/15m/30m/60m sí muestran Sortino positivo en algún
+punto, pero con 0-8 trades en 6 meses — insuficiente para sacar ninguna
+conclusión (ver `results/or_window_sweep_real_qqq/`).
+
+**Esto es justo la razón por la que insistí tanto en probar con datos
+reales antes de sacar conclusiones de los datasets sintéticos**: el
+patrón "ventana de OR más corta = mejor" que parecía tan claro con
+datos sintéticos (especialmente en el dataset C) **no se sostiene** con
+QQQ real — de hecho ahí la ventana más corta (5 min) es de las peores en
+todas las granularidades. Los generadores sintéticos, por bien
+calibrados que estén en momentos estadísticos (volatilidad, kurtosis,
+clustering), no capturan toda la microestructura real del mercado que
+esta estrategia intenta explotar. Antes de operar esto con dinero real
+hace falta revisar la lógica de la estrategia misma (parámetros de
+absorción, definición de sesgo, gestión de SL/TP) contra este resultado
+negativo, no solo ajustar la ventana de OR.
 
 ## Versión Pine Script (TradingView)
 
@@ -358,16 +390,18 @@ resultante como artifact del run (Actions → el run → "Artifacts"):
      verdad.
 
   ⚠️ Es un servicio de pago — revisa tu plan/cuota antes de pedir rangos
-  largos. El script se escribió verificando la firma exacta del SDK
-  oficial de Databento (instalando el paquete), pero no se pudo probar
-  una llamada real a la API desde este entorno — si el workflow falla,
-  pásame el error exacto del log y se ajusta.
+  largos. El script ya se validó con una corrida real (ver resultados
+  arriba); si vuelve a fallar por algún motivo, pásame el error exacto
+  del log y se ajusta.
 
 ## Próximos pasos sugeridos
 
-- Pasarme un CSV real de 6 meses (1m o 5m, con volumen) para correr el
-  backtest de verdad y afinar parámetros (ventana de absorción, buffer
-  de SL, % de riesgo).
+- El resultado con 6 meses reales de QQQ es negativo (ver arriba) — antes
+  de seguir ajustando parámetros (ventana de OR, buffer de SL, filtro de
+  volumen), vale la pena revisar si la lógica de absorción/sesgo
+  direccional en sí necesita cambios, o probar la estrategia en otro
+  período/instrumento (ej. NQ futuro vía `GLBX.MDP3`) para ver si el
+  resultado se sostiene.
 - Si tu CVD "de la imagen" usa una lógica más específica (p.ej. umbral
   mínimo de divergencia, número exacto de velas, o un CVD calculado con
   datos de tick reales de tu plataforma), lo ajustamos en `src/cvd.py` y
