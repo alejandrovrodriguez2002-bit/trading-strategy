@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pandas as pd
 
 REQUIRED_COLS = ["open", "high", "low", "close", "volume"]
@@ -19,6 +20,24 @@ _COLUMN_ALIASES = {
 }
 
 
+def _fix_yahoo_zero_open_volume(df: pd.DataFrame) -> pd.DataFrame:
+    """Corrige un artefacto conocido de Yahoo Finance en datos intradía:
+    la primera vela de cada sesión suele reportar volume=0 (el print de
+    apertura no se agrega bien), justo la vela que más importa para una
+    estrategia basada en la apertura de NY. Se reemplaza por el volumen de
+    la vela siguiente del mismo día (aproximación razonable: la explosión
+    de volumen de apertura casi siempre se sostiene 1-2 velas)."""
+    if df.empty:
+        return df
+    dates = df.index.date
+    is_new_day = np.concatenate(([True], dates[1:] != dates[:-1]))
+    zero_open = is_new_day & (df["volume"] == 0)
+    if zero_open.any():
+        next_vol = df["volume"].shift(-1)
+        df.loc[zero_open, "volume"] = next_vol[zero_open]
+    return df
+
+
 def load_csv(path: str | Path, tz: str = "America/New_York") -> pd.DataFrame:
     """Carga un CSV genérico de velas OHLCV y lo normaliza.
 
@@ -30,6 +49,10 @@ def load_csv(path: str | Path, tz: str = "America/New_York") -> pd.DataFrame:
     df.columns = [c.strip().lower() for c in df.columns]
     rename = {c: _COLUMN_ALIASES[c] for c in df.columns if c in _COLUMN_ALIASES}
     df = df.rename(columns=rename)
+    # CSVs de Yahoo suelen traer "Close" y "Adj Close" a la vez, y ambas
+    # se mapean a "close" -> se queda con la primera y descarta el duplicado
+    # (para un índice como ^IXIC son idénticas; no hay dividendos que ajustar)
+    df = df.loc[:, ~df.columns.duplicated()]
 
     if "datetime" not in df.columns:
         raise ValueError(
@@ -49,7 +72,8 @@ def load_csv(path: str | Path, tz: str = "America/New_York") -> pd.DataFrame:
 
     df = df[REQUIRED_COLS].astype(float)
     df["volume"] = df["volume"].fillna(0)
-    return df.dropna(subset=["open", "high", "low", "close"])
+    df = df.dropna(subset=["open", "high", "low", "close"])
+    return _fix_yahoo_zero_open_volume(df)
 
 
 def fetch_yfinance(

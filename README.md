@@ -150,9 +150,12 @@ scripts/
                               y genera el reporte comparativo
   run_or_window_sweep.py     barrido de la ventana de OR (5/10/15/30/60 min)
                               sobre los datasets A/B/C
+  run_or_window_sweep_real.py  mismo barrido pero sobre datos reales
+                                (NASDAQ ^IXIC en data/*.csv)
 tests/             tests unitarios (pytest)
 results/           output del último run (trades.csv, métricas, gráfico)
   comparison/      reporte comparativo A/B/C (ver abajo)
+  or_window_sweep_real/  barrido de OR sobre datos reales (ver abajo)
   or_window_sweep/ reporte del barrido de ventana de OR (ver abajo)
 pine/
   ny_orb_cvd_absorption.pine  misma estrategia en Pine Script v5 para
@@ -237,6 +240,42 @@ que el rango de apertura debe capturar la "explosión" inicial de la
 apertura de NY (ya validada aparte con el filtro de volumen) y no
 diluirse con ventanas más largas, donde el nivel de apertura deja de
 representar bien la reacción inicial del mercado.
+
+### Con datos REALES: NASDAQ Composite (^IXIC)
+
+`scripts/run_or_window_sweep_real.py` corre el mismo barrido de OR
+(5/10/15/30/60 min) pero sobre velas reales del índice NASDAQ Composite
+(^IXIC), en 1m/2m/3m/5m, en vez de los datasets sintéticos:
+
+```bash
+python scripts/run_or_window_sweep_real.py
+```
+
+Al cargar estos datos aparecieron y se corrigieron dos bugs reales en
+`src/data.py: load_csv` (afectan a cualquier CSV de Yahoo Finance, no solo
+a este):
+
+1. **Columna `close` duplicada**: los CSV de Yahoo traen `Close` y `Adj
+   Close` a la vez, y ambas se mapeaban a `close` → quedaban dos columnas
+   con el mismo nombre, lo que rompía cualquier resta entre columnas (el
+   cálculo del CVD, por ejemplo) con un `ValueError: cannot reindex on an
+   axis with duplicate labels`. Ahora se deduplica quedándose con la
+   primera.
+2. **Volumen de la primera vela del día en 0**: Yahoo suele reportar
+   volumen 0 en el primer minuto de cada sesión (un artefacto conocido de
+   cómo agregan el print de apertura) — justo la vela que más le importa
+   a esta estrategia. Se corrige (`_fix_yahoo_zero_open_volume`)
+   reemplazándola por el volumen de la vela siguiente del mismo día.
+
+**⚠️ Historial real disponible: muy corto** (límite de Yahoo, no del
+código — ver la sección de limitaciones arriba): ~20 días para 2m/5m,
+~4 días para 1m/3m. Con tan pocos días, cada combinación tiene entre 0 y
+10 trades — el reporte en `results/or_window_sweep_real/` corre sin
+errores y sirve como prueba de que el motor funciona con datos reales,
+pero los Sortino/Sharpe ahí (algunos rondando ±7 o +17 con 1-3 trades)
+**no son estadísticamente significativos** — para una lectura confiable
+hace falta bastante más historial del que Yahoo entrega gratis
+intradía (ver "Próximos pasos sugeridos").
 
 ## Versión Pine Script (TradingView)
 
