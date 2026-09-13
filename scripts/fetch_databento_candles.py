@@ -129,15 +129,19 @@ def main():
                          help="Días hacia atrás a solicitar (Databento sí soporta rangos largos; "
                               "ojo con tu cuota/costo)")
     parser.add_argument("--start", default=None, help="Fecha de inicio explícita (YYYY-MM-DD), sobreescribe --days")
-    parser.add_argument("--end", default=None, help="Fecha de fin explícita (YYYY-MM-DD), por defecto hoy")
+    parser.add_argument("--end", default=None, help="Fecha de fin explícita (YYYY-MM-DD), por defecto ayer")
     parser.add_argument("--tz", default="America/New_York")
     parser.add_argument("--outdir", default="data", help="Directorio de salida para los CSV")
     parser.add_argument("--all-hours", action="store_true", help="No filtrar a horario regular 09:30-16:00 NY")
     args = parser.parse_args()
 
     symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
-    end = args.end or pd.Timestamp.utcnow().strftime("%Y-%m-%d")
-    start = args.start or (pd.Timestamp.utcnow() - pd.Timedelta(days=args.days)).strftime("%Y-%m-%d")
+    # Databento tiene ~1 día de retraso en la disponibilidad de datos históricos
+    # (el 422 "data_end_after_available_end" que salió al probar esto en el
+    # workflow real es justo por pedir hasta "hoy") -> se pide hasta ayer.
+    now = pd.Timestamp.now("UTC")
+    end = args.end or (now - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    start = args.start or (now - pd.Timedelta(days=args.days + 1)).strftime("%Y-%m-%d")
 
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
