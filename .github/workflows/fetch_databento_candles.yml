@@ -23,6 +23,8 @@ on:
 jobs:
   fetch-candles:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -52,3 +54,18 @@ jobs:
           name: databento-candles-csv
           path: data/databento_*.csv
           if-no-files-found: warn
+
+      - name: Commit CSVs to a data-exports branch
+        run: |
+          shopt -s nullglob
+          files=(data/databento_*.csv)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "Sin CSVs generados, no hay nada que commitear."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B data-exports
+          git add -f data/databento_*.csv
+          git commit -m "Databento candles export ($(date -u +%Y-%m-%dT%H:%M:%SZ))" || echo "Nada que commitear"
+          git push -f origin data-exports
