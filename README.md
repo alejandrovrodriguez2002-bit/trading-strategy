@@ -269,56 +269,71 @@ Con esas salvedades explícitas: esta es, hasta ahora, la única variante de
 todo este proyecto que muestra edge positivo (profit factor y Sortino > 0)
 en datos reales que el proceso de selección de parámetros nunca vio.
 
-### Variante probada: barrido de PDH/PDL (sesión anterior) con objetivo en el lado opuesto o el POC — no muestra edge
+### Variante probada: mismo rango del día anterior (PDH/PDL) en vez del rango de apertura — no muestra edge
 
-A pedido, se extendió `src/simple_orb.py` con dos ingredientes ICT/SMC
-adicionales:
+A pedido, se extendió `src/simple_orb.py` con `range_source="prev_session"`:
+el rompimiento ya no se mide contra el rango de apertura de hoy, sino
+contra el **high/low de toda la sesión de trading anterior** (PDH/PDL —
+"previous day high/low", un pool de liquidez clásico de ICT/SMC). La
+búsqueda de rompimiento arranca desde el open de la sesión (no hay
+"apertura" que esperar). Se probó con tres tipos de take profit
+(`tp_mode`):
 
-- `range_source="prev_session"`: el rompimiento ya no se mide contra el
-  rango de apertura de hoy, sino contra el **high/low de toda la sesión
-  de trading anterior** (PDH/PDL — "previous day high/low", un pool de
-  liquidez clásico). La búsqueda de rompimiento arranca desde el open de
-  la sesión (no hay "apertura" que esperar).
-- `tp_mode`, dos objetivos nuevos en vez del múltiplo de R fijo:
-  - `"opposite_extreme"`: el lado del rango anterior que **no** se rompió
-    (barre el PDH → objetivo el PDL, y viceversa) — los "highs and lows
-    de la sesión anterior... como precio objetivo" pedidos.
-  - `"poc"`: el **Punto de Control (POC)** de la sesión anterior — el
-    nivel de precio con más volumen acumulado esa sesión (aproximado con
-    un histograma de 30 bins sobre el rango high-low, mismo enfoque que
-    el resto del proyecto usa para CVD/volumen sin datos de tick real).
+- `"opposite_extreme"`: el lado del rango anterior que **no** se rompió
+  (barre el PDH → objetivo el PDL, y viceversa) — los "highs and lows de
+  la sesión anterior... como precio objetivo" pedidos.
+- `"poc"`: el **Punto de Control (POC)** de la sesión anterior — el nivel
+  de precio con más volumen acumulado esa sesión (histograma de 30 bins
+  sobre el rango high-low, mismo enfoque que el resto del proyecto usa
+  para CVD/volumen sin datos de tick real).
+- `"r_multiple"`: el **mismo objetivo de R fijo** que la variante OR30 ya
+  validada — se agregó para aislar si lo que falla es el tipo de objetivo
+  o el rango de referencia (PDH/PDL) en sí mismo.
 
-Se corrió `scripts/run_liquidity_sweep_grid.py` con el mismo split honesto
-train/test por fecha (62 días train / 63 días test) sobre 1m/2m/3m/5m
-reales de QQQ, barriendo `tp_mode` × `sl_mode` × `direction_mode` ×
-filtro de tendencia (16 combinaciones).
+`scripts/run_liquidity_sweep_grid.py` corre las 48 combinaciones
+(`tp_mode` × `tp_r_multiple` × `sl_mode` × `direction_mode` × filtro de
+tendencia) con el mismo split honesto train/test por fecha (62 días train
+/ 63 días test) sobre 1m/2m/3m/5m reales de QQQ.
 
-**Resultado: no hay edge.** En modo "breakout" (continuación) las 8
-combinaciones dan **0 trades** en las 4 granularidades — es el
-comportamiento correcto y esperado: el objetivo (el lado no roto, o el
-POC dentro del rango ya recorrido) queda siempre detrás del precio de
-entrada para una continuación, así que nunca hay un target válido. En
-modo "fade" (el que sí tiene sentido direccional), casi todas las
-combinaciones son claramente negativas en TRAIN (profit factor 0.0–0.9,
-Sortino entre -10 y -1) en las 4 granularidades. Las pocas combinaciones
-que aparentan funcionar en TEST descansan en muestras minúsculas (11-23
-trades) con una relación train/test que no tiene sentido si fuera una
-edge real: por ejemplo, en 3m con `tp_mode="poc"` + filtro de tendencia,
-train pierde **23 de 23 trades** (0% de aciertos) pero test muestra 7
-ganadores de 19 — ninguna estrategia real pierde el 100% de sus trades en
-una mitad del historial y de repente funciona en la otra; es ruido de
-muestra pequeña seleccionado post-hoc por el barrido, no una señal.
+**Resultado: no hay edge, con tres fallas distintas según el objetivo:**
 
-Conclusión: barrer el PDH/PDL de la sesión anterior y apuntar al lado
-opuesto o al POC **no es una mejora** sobre la variante validada arriba
-(fade del rango de apertura de 30 min con TP de 1.5R fijo) — se documenta
-el código y el resultado (como con el filtro de bandas SD) para no
-repetir la prueba, pero **no se recomienda usarla**. La hipótesis más
-probable: al exigir que el precio recorra TODO el rango del día anterior
-(mucho más ancho que un rango de apertura de 30 min) antes de dar señal,
-el número de setups por día cae mucho (11-58 trades en 6 meses según la
-combinación, contra 61 de la variante OR30) y los que sí ocurren ya son
-extremos de baja probabilidad de reversión limpia.
+1. **`"opposite_extreme"`/`"poc"` en modo "breakout" (continuación)**: 0
+   trades en las 4 granularidades — comportamiento esperado, el objetivo
+   siempre queda detrás del precio de entrada.
+2. **`"opposite_extreme"`/`"poc"` en modo "fade"**: casi todas las
+   combinaciones pierden claramente en TRAIN (profit factor 0.0–0.9,
+   Sortino -10 a -1). Las pocas que parecen funcionar en TEST descansan en
+   11-23 trades con una relación train/test sin sentido para una edge real
+   — ej. en 3m con `"poc"` + filtro de tendencia, train pierde **23 de 23
+   trades** pero test gana 7 de 19: es ruido de muestra pequeña
+   seleccionado post-hoc, no señal.
+3. **`"r_multiple"` (el mismo TP de la variante que sí funciona)**: aquí
+   el barrido elige consistentemente **modo "breakout"** (momentum, NO
+   fade) como el mejor en TRAIN, con métricas aparentemente excelentes
+   (Sortino 6.6-9.8, profit factor 1.7-2.2, en las 4 granularidades) —
+   pero se cae en TEST (Sortino -2.85 a 1.56, profit factor 0.70-1.19,
+   negativo en 1m y 5m). La causa se identificó directamente en los
+   datos: el período **train** (16 mar–11 jun) fue un QQQ en tendencia
+   fuerte (**+19.2%**), mientras que el período **test** (12 jun–11 sep)
+   fue prácticamente plano (**+0.14%**). Comprar la ruptura del high de
+   ayer (o vender la del low) es trivialmente rentable en una tendencia
+   sostenida y colapsa en un mercado plano/lateral — es **dependencia de
+   régimen de mercado**, no una edge repetible. Es la misma asimetría que
+   ya se había visto al revés: el fade (reversión) le fue mejor que la
+   continuación en el período de prueba precisamente porque ese tramo fue
+   más lateral.
+
+Conclusión: cambiar el rango de apertura de 30 min por el rango de TODA
+la sesión anterior (PDH/PDL) **no es una mejora**, con ningún tipo de
+objetivo probado — se documenta el código y el resultado (como con el
+filtro de bandas SD) para no repetir la prueba, pero **no se recomienda
+usarla**. Además de la dependencia de régimen del punto 3, el número de
+setups por día cae bastante (35-58 trades en 6 meses según la
+combinación, contra 61 de la variante OR30) porque exige que el precio
+recorra el rango completo del día anterior (mucho más ancho que 30 min de
+apertura) antes de dar señal. La única variante de todo el proyecto con
+edge validado fuera de muestra sigue siendo el fade del rango de apertura
+de 30 minutos con TP de 1.5R fijo (sección anterior).
 
 ## Métricas calculadas
 

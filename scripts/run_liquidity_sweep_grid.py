@@ -9,6 +9,12 @@ ICT/SMC), no contra el rango de apertura de hoy. Dos modos de take profit:
   anterior... como precio objetivo" pedidos.
 - "poc": el Punto de Control (POC) de la sesión anterior -- el nivel de
   precio con más volumen acumulado, como objetivo alternativo/más cercano.
+- "r_multiple": el mismo objetivo de múltiplo de R fijo que la variante
+  OR30 validada (ver README.md) -- se agrega para aislar si lo que falla
+  es el tipo de objetivo (lado opuesto/POC) o el rango de referencia en sí
+  (PDH/PDL de TODA la sesión anterior, que dispara la mayoría de entradas
+  justo al abrir por gaps overnight, en vez de esperar los primeros 30 min
+  como hace el rango de apertura).
 
 Mismo split honesto train/test por fecha que scripts/run_simple_orb_grid.py
 (la primera mitad del historial elige parámetros por Sortino; la segunda
@@ -40,10 +46,11 @@ SOURCES = {
     "5m": "data/databento_QQQ_5m_candles.csv",
 }
 
-TP_MODE_GRID = ["opposite_extreme", "poc"]
+TP_MODE_GRID = ["opposite_extreme", "poc", "r_multiple"]
 SL_MODE_GRID = ["or_opposite", "liquidity"]
 DIRECTION_MODE_GRID = ["fade", "breakout"]
 TREND_FILTER_GRID = [False, True]
+TP_R_GRID = [1.0, 1.5, 2.0, 3.0]  # solo aplica cuando tp_mode == "r_multiple"
 MAX_LEVERAGE = 1.0  # sin margen -- la posición nunca excede el equity disponible
 
 MIN_TRAIN_TRADES = 10  # combinaciones con menos trades en train no son fiables para elegir parámetros
@@ -61,10 +68,19 @@ def _grid_combos():
     for tp_mode, sl_mode, direction_mode, trend in product(
         TP_MODE_GRID, SL_MODE_GRID, DIRECTION_MODE_GRID, TREND_FILTER_GRID
     ):
-        yield dict(
-            tp_mode=tp_mode, sl_mode=sl_mode,
-            direction_mode=direction_mode, trend_filter_enabled=trend,
-        )
+        if tp_mode == "r_multiple":
+            # el múltiplo de R solo es relevante en este modo -- para
+            # "opposite_extreme"/"poc" el objetivo no depende de tp_r_multiple
+            for tp_r in TP_R_GRID:
+                yield dict(
+                    tp_mode=tp_mode, sl_mode=sl_mode, direction_mode=direction_mode,
+                    trend_filter_enabled=trend, tp_r_multiple=tp_r,
+                )
+        else:
+            yield dict(
+                tp_mode=tp_mode, sl_mode=sl_mode,
+                direction_mode=direction_mode, trend_filter_enabled=trend,
+            )
 
 
 def run_for_interval(label: str, path: str):
@@ -103,7 +119,7 @@ def run_for_interval(label: str, path: str):
         return {
             "interval": label, "split_date": str(split_date),
             "n_train_days": n_train_days, "n_test_days": n_test_days,
-            "train_top": train_rows[:8], "selected_combo": None, "test_metrics": None,
+            "train_top": train_rows[:12], "selected_combo": None, "test_metrics": None,
         }
 
     _, _, best_combo, best_train_metrics = best
@@ -122,7 +138,7 @@ def run_for_interval(label: str, path: str):
     return {
         "interval": label, "split_date": str(split_date),
         "n_train_days": n_train_days, "n_test_days": n_test_days,
-        "train_top": train_rows[:8], "selected_combo": best_combo,
+        "train_top": train_rows[:12], "selected_combo": best_combo,
         "train_metrics": best_train_metrics, "test_metrics": test_metrics,
     }
 
@@ -159,11 +175,15 @@ def main():
             "Control (nivel de más volumen) de la sesión anterior. Mismo split honesto train/test por "
             "fecha que la variante fade original: la primera mitad de los ~6 meses reales de QQQ elige "
             "la mejor combinación por Sortino (train); la segunda mitad, nunca vista, evalúa esa "
-            "combinación ya fija (test). Sizing con `max_leverage=1.0` (sin margen).\n\n"
-            f"Grid: TP={TP_MODE_GRID}, SL={SL_MODE_GRID}, dirección={DIRECTION_MODE_GRID}, "
+            "combinación ya fija (test). Sizing con `max_leverage=1.0` (sin margen). Se agregó "
+            "`tp_mode=\"r_multiple\"` (el mismo objetivo de múltiplo de R fijo que la variante OR30 "
+            "validada) para aislar si el problema es el objetivo (lado opuesto/POC) o el rango de "
+            "referencia en sí (PDH/PDL de la sesión anterior, en vez del rango de apertura).\n\n"
+            f"Grid: TP={TP_MODE_GRID} (con TP_R={TP_R_GRID} solo para \"r_multiple\"), "
+            f"SL={SL_MODE_GRID}, dirección={DIRECTION_MODE_GRID}, "
             f"filtro de tendencia={TREND_FILTER_GRID} "
-            f"({len(TP_MODE_GRID) * len(SL_MODE_GRID) * len(DIRECTION_MODE_GRID) * len(TREND_FILTER_GRID)} "
-            f"combinaciones), mínimo {MIN_TRAIN_TRADES} trades en train para poder elegirse.\n\n"
+            f"({len(list(_grid_combos()))} combinaciones), mínimo {MIN_TRAIN_TRADES} trades en "
+            "train para poder elegirse.\n\n"
         )
         for label, r in results.items():
             f.write(f"## {label}\n\n")
@@ -180,7 +200,7 @@ def main():
             f.write("| train (in-sample) | " + " | ".join(str(r["train_metrics"][c]) for c in cols) + " |\n")
             f.write("| test (fuera de muestra) | " + " | ".join(str(r["test_metrics"][c]) for c in cols) + " |\n\n")
             f.write("Todas las combinaciones en train, por Sortino:\n\n")
-            top_cols = ["tp_mode", "sl_mode", "direction_mode", "trend_filter_enabled",
+            top_cols = ["tp_mode", "tp_r_multiple", "sl_mode", "direction_mode", "trend_filter_enabled",
                         "num_trades", "sortino_ratio", "profit_factor", "total_return_pct"]
             f.write("| " + " | ".join(top_cols) + " |\n")
             f.write("|" + "---|" * len(top_cols) + "\n")
