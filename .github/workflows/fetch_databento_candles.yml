@@ -19,6 +19,10 @@ on:
         description: "Días hacia atrás a solicitar (Databento sí soporta rangos largos; ojo con tu cuota/costo)"
         required: false
         default: "180"
+      all_hours:
+        description: "true = no filtrar a horario regular NY 09:30-16:00 (necesario para sesiones de Asia/Londres en futuros 24h)"
+        required: false
+        default: "false"
 
 jobs:
   fetch-candles:
@@ -41,12 +45,17 @@ jobs:
         env:
           DATABENTO_API_KEY: ${{ secrets.DATABENTO_API_KEY }}
         run: |
+          ALL_HOURS_FLAG=""
+          if [ "${{ github.event.inputs.all_hours }}" = "true" ]; then
+            ALL_HOURS_FLAG="--all-hours"
+          fi
           python3 scripts/fetch_databento_candles.py \
             --dataset "${{ github.event.inputs.dataset }}" \
             --symbols "${{ github.event.inputs.symbols }}" \
             --stype-in "${{ github.event.inputs.stype_in }}" \
             --days "${{ github.event.inputs.days }}" \
-            --outdir data
+            --outdir data \
+            $ALL_HOURS_FLAG
 
       - name: Upload CSVs as artifact
         uses: actions/upload-artifact@v4
