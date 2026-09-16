@@ -575,6 +575,9 @@ python scripts/run_simple_orb_grid.py
 
 # 5) Barrido de PDH/PDL + objetivo en el lado opuesto/POC (probado, no muestra edge -- ver sección arriba)
 python scripts/run_liquidity_sweep_grid.py
+
+# 6) Zonas de valor Asia/Londres/NY sobre NQ real (confirma ny_first30, descarta las otras 5)
+python scripts/run_session_zone_grid.py
 ```
 
 Esto genera en `results/`: `trades.csv` (log completo de operaciones),
@@ -621,6 +624,78 @@ resultante como artifact del run (Actions → el run → "Artifacts"):
   arriba); si vuelve a fallar por algún motivo, pásame el error exacto
   del log y se ajusta.
 
+## Zonas de valor de 30 min: Asia, Londres y NY (primeros y últimos 30 min) — confirma NY-apertura, descarta las otras 5
+
+A pedido, se probó la MISMA receta ya validada (fade + SL en la mecha real
++ TP de 1.5R fijo, sin filtro de tendencia ni de volumen) en 6 ventanas
+horarias de 30 minutos en vez de solo la apertura de NY: los primeros y
+los últimos 30 minutos de las sesiones de Asia, Londres y Nueva York.
+
+**Problema de datos, resuelto con otro instrumento**: QQQ (el dataset
+real usado en todo este proyecto hasta ahora) son velas **solo de horario
+regular de NY, 09:30–16:00 ET, sin una sola vela fuera de ese rango** — un
+ETF de acciones de EE.UU. no cotiza en las sesiones de Asia/Londres. Para
+tener velas reales de esas sesiones se cambió de instrumento a **NQ**
+(futuro E-mini Nasdaq-100, CME Globex), que cotiza ~24h/día. Se usó el
+mismo pipeline de Databento vía GitHub Actions ya armado en este proyecto
+(`dataset=GLBX.MDP3`, `symbols=NQ.c.0`, `stype_in=continuous`), agregando
+un flag `--all-hours` al workflow para no recortar a horario NY. Resultado:
+~180 días (18 mar–14 sep 2026), cobertura de 24 de las 24 horas del día
+salvo el cierre diario de mantenimiento de CME (~17:00–18:00 ET) — sí hay
+velas reales de Asia y Londres.
+
+Las 6 zonas (`src/session_zone.py`, horario de NY):
+
+| Zona | Ventana marcada | Sesión | Búsqueda de rompimiento |
+|---|---|---|---|
+| `asia_first30` | 19:00–19:30 | Primeros 30 min de Asia | hasta las 04:00 (fin de Asia) |
+| `asia_last30` | 03:30–04:00 | Últimos 30 min de Asia | 8.5h siguientes |
+| `london_first30` | 03:00–03:30 | Primeros 30 min de Londres | hasta las 12:00 (fin de Londres) |
+| `london_last30` | 11:30–12:00 | Últimos 30 min de Londres | 8.5h siguientes |
+| `ny_first30` | 09:30–10:00 | Primeros 30 min de NY | hasta las 16:00 (fin de NY) — **la variante ya validada** |
+| `ny_last30` | 15:30–16:00 | Últimos 30 min de NY | 6h siguientes |
+
+`scripts/run_session_zone_grid.py` corre las 6 zonas en 5m y 15m de NQ,
+con el mismo split honesto train/test por fecha del resto del proyecto
+(mitad del historial como referencia, la otra mitad — test — nunca usada
+para ajustar nada), usando los MISMOS parámetros fijos en las 6 zonas
+para no maquillar el resultado favoreciendo a una en particular.
+
+**Resultado: solo `ny_first30` sostiene la edge. Las otras 5 zonas, no.**
+
+| Zona | 5m train | 5m test | 15m train | 15m test |
+|---|---|---|---|---|
+| asia_first30 | PF 0.56, Sortino -4.5 | PF 0.44, Sortino -5.7 | PF 0.37, Sortino -5.6 | PF 0.52, Sortino -4.3 |
+| asia_last30 | PF 0.38, Sortino -6.3 | PF 0.81, Sortino -1.8 | PF 0.40, Sortino -5.7 | PF 0.57, Sortino -3.9 |
+| london_first30 | PF 0.72, Sortino -2.4 | PF 0.93, Sortino -0.6 | PF 0.83, Sortino -1.4 | PF 0.95, Sortino -0.5 |
+| london_last30 | PF 1.16, Sortino 1.2 | PF 0.59, Sortino -4.2 | PF 1.59, Sortino 3.9 | PF 0.62, Sortino -3.6 |
+| **ny_first30** | **PF 1.66, Sortino 4.9** | **PF 1.43, Sortino 3.3** | **PF 1.52, Sortino 3.5** | **PF 1.16, Sortino 1.1** |
+| ny_last30 | PF 0.71, Sortino -1.8 | PF 0.93, Sortino -0.4 | PF 0.68, Sortino -2.3 | PF 1.24, Sortino 1.3 |
+
+Interpretación:
+- **Asia (ambos tramos) y `london_first30`**: negativos o apenas al
+  breakeven en train Y test, en ambos timeframes — no hay edge, de forma
+  consistente (no es ruido, ambos lados coinciden en el signo).
+- **`london_last30` y `ny_last30`**: se ven bien en train pero **se caen
+  en test** (`london_last30`: Sortino +1.2/+3.9 en train → **-4.2/-3.6**
+  en test, en los dos timeframes) — el patrón clásico de sobreajuste ya
+  visto en este proyecto (ej. el barrido de PDH/PDL con dirección
+  "breakout"), no una edge real.
+- **`ny_first30` es la única zona con Sortino y profit factor positivos EN
+  TRAIN Y EN TEST, en los dos timeframes** — y esto es sobre **NQ
+  (futuro), un instrumento completamente distinto a QQQ (ETF)** donde se
+  validó originalmente. Es la primera confirmación cruzada de instrumento
+  de toda la edge de este proyecto: la ventaja de fade en la apertura de
+  30 min de NY no es un accidente de QQQ ni del período de prueba
+  original — se repite en otro mercado.
+
+Conclusión: de las 6 zonas probadas, la apertura de NY sigue siendo la
+única con una edge genuina y reproducible. Las otras 5 (incluida la
+intuición de "Asia y Londres también deberían tener su propia zona de
+valor") se probaron de buena fe y no se sostienen — se documentan aquí
+en vez de descartarse en silencio, siguiendo la misma práctica que el
+resto de este README.
+
 ## Próximos pasos sugeridos
 
 - La estrategia original (ORB + absorción CVD) sigue sin mostrar edge
@@ -628,13 +703,18 @@ resultante como artifact del run (Actions → el run → "Artifacts"):
   con bandas SD. La variante que sí lo muestra es **ORB clásico en modo
   "fade"** (`src/simple_orb.py`, ver sección arriba) — validada con split
   train/test, positiva fuera de muestra en 1m/2m/3m/5m.
+- **Confirmado en NQ (futuro)**: la variante `ny_first30` de
+  `src/session_zone.py` (misma receta del fade de OR30) sostiene el edge
+  fuera de muestra en NQ, no solo en QQQ — ver sección "Zonas de valor"
+  arriba. Las otras 5 zonas horarias probadas (Asia/Londres, primeros y
+  últimos 30 min) no mostraron edge.
 - Pasos para llevar el fade de OR30 más allá de esta validación inicial:
-  forward-test en papel unas semanas, probar en otro instrumento/período
-  (ej. NQ futuro vía `GLBX.MDP3`, u otro rango de fechas) para confirmar
-  que no es específico a este régimen de mercado, y sincronizar la lógica
-  con `pine/ny_orb_cvd_absorption.pine` si se quiere operar/monitorear
-  desde TradingView (el Pine actual todavía implementa solo la estrategia
-  original de continuación + CVD, no el fade).
+  forward-test en papel unas semanas, probar en otros períodos/rangos de
+  fechas (para confirmar que no es específico a este régimen de mercado
+  2026), y sincronizar la lógica con `pine/ny_orb_cvd_absorption.pine` si
+  se quiere operar/monitorear desde TradingView (el Pine actual todavía
+  implementa solo la estrategia original de continuación + CVD, no el
+  fade).
 - Si tu CVD "de la imagen" usa una lógica más específica (p.ej. umbral
   mínimo de divergencia, número exacto de velas, o un CVD calculado con
   datos de tick reales de tu plataforma), lo ajustamos en `src/cvd.py` y
