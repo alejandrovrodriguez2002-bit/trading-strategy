@@ -1,0 +1,3 @@
+# CSV crudo de 1m (vive en la rama data-exports; ver scripts/run_intraday_strategies.py)
+data/raw_*.csv
+__pycache__/
