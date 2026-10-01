@@ -14,7 +14,7 @@ Generado por `scripts/run_intraday_strategies.py`. Todas las cifras son **netas 
 | S2 1a->última media hora, sin filtro VIX | 2026-03-23 → 2026-09-14 | 117 | 61 | 2.91% | 6.4% | 3.2% | 1.94 | **3.77** | -1.36% | **6.8%** (1.54) | **-0.01** | 61% | 1.66 | [-0.04, 3.93] | 0.05 | 1.53% |
 | NQ buy & hold (benchmark) | 2026-03-24 → 2026-09-14 | 118 | 0 | 15.69% | 36.5% | 22.4% | 1.50 | **2.29** | -13.81% | — | **1.00** | n/a | n/a | [-0.88, 4.12] | 0.15 | 11.90% |
 
-Alfa y beta: regresión OLS diaria `r_estrategia = α + β·r_NQ` con errores Newey-West (5 rezagos); α anualizada ×252, entre paréntesis su estadístico t (|t| > 2 ≈ significativo al 5 %). Benchmark = NQ comprado y mantenido (cierre a cierre de la sesión regular). Sharpe/Sortino con rf = 0 porque el P&L de un futuro ya es retorno en exceso. Sortino = media / desviación a la baja (MAR = 0) × √252. IC 90 % y P(media≤0) por bootstrap por bloques (5 000 réplicas, bloque medio de 5 días). CAGR anualiza un periodo de < 6 meses: tómalo como referencia, no como expectativa.
+Alfa y beta: regresión OLS diaria `r_estrategia = α + β·r_NQ` con errores Newey-West (5 rezagos); α anualizada ×252, entre paréntesis su estadístico t (|t| > 2 ≈ significativo al 5 %). Benchmark = NQ comprado y mantenido (cierre a cierre de la sesión regular). Sharpe/Sortino con rf = 0 porque el P&L de un futuro ya es retorno en exceso. Sortino = media / desviación a la baja (MAR = 0) × √252. IC 90 % y P(media≤0) por bootstrap por bloques (5 000 réplicas, bloque medio de 5 días). CAGR anualiza un periodo de < 1 año: tómalo como referencia, no como expectativa.
 
 ### Misma ventana para todas (desde que S1 termina su calentamiento de 14 días)
 
@@ -26,9 +26,9 @@ Alfa y beta: regresión OLS diaria `r_estrategia = α + β·r_NQ` con errores Ne
 | S2 1a->última media hora, sin filtro VIX | 2026-04-13 → 2026-09-14 | 53 | 2.40% | 1.81 | 3.63 | -1.36% | 6.5% (1.40) | -0.02 |
 | NQ buy & hold (benchmark) | 2026-04-13 → 2026-09-14 | 0 | 11.63% | 1.31 | 1.97 | -13.81% | — | 1.00 |
 
-### Estabilidad por sub-periodo (mitades)
+### Estabilidad por sub-periodo
 
-| Estrategia | Mitad | Retorno | Sharpe | Sortino | Máx. DD |
+| Estrategia | Periodo | Retorno | Sharpe | Sortino | Máx. DD |
 |---|---|---|---|---|---|
 | S1 bandas de ruido (vol-target, paper) | 1a mitad (2026-04-13 → 2026-06-30) | 4.09% | 1.35 | 3.32 | -2.92% |
 | S1 bandas de ruido (vol-target, paper) | 2a mitad (2026-07-01 → 2026-09-14) | 1.71% | 0.92 | 1.64 | -3.88% |
@@ -41,12 +41,12 @@ Alfa y beta: regresión OLS diaria `r_estrategia = α + β·r_NQ` con errores Ne
 
 ## Robustez
 
-**S1** — 36 variantes (lookback 10/14/20 × sizing vol-target/1x × ejecución siguiente-apertura/precio-de-señal × costos 0/1x/2x), todas medidas desde 2026-04-20 para que la ventana sea idéntica: Sharpe mediano 0.27, rango [-0.70, 1.04]; 26/36 variantes con retorno positivo.
+**S1** — 36 variantes (lookback 10/14/20 × sizing vol-target/1x × ejecución siguiente-apertura/precio-de-señal × costos 0/1x/2x), todas medidas desde 2026-04-21 para que la ventana sea idéntica: Sharpe mediano 0.41, rango [-0.70, 1.13]; 26/36 variantes con retorno positivo.
 
 | Lookback | Sharpe vol-target | Sharpe 1x | Sortino vol-target | Sortino 1x | Retorno vol-target | Retorno 1x |
 |---|---|---|---|---|---|---|
-| 10.0 | 0.34 | 0.22 | 0.75 | 0.40 | 1.65% | 0.52% |
-| 14.0 | 0.98 | 0.78 | 2.14 | 1.42 | 4.74% | 2.12% |
+| 10.0 | 0.47 | 0.35 | 1.08 | 0.65 | 2.52% | 0.89% |
+| 14.0 | 1.07 | 0.87 | 2.35 | 1.58 | 5.18% | 2.36% |
 | 20.0 | 0.06 | -0.60 | 0.12 | -0.95 | -0.01% | -1.76% |
 
 **S2** — filtro VIX (sin filtro / ≥15 / ≥20 / ≥25) × definición de la primera media hora (cierre previo→10:00 como en el paper, o 09:30→10:00) × ejecución × costos:
@@ -66,7 +66,7 @@ Tabla completa en `robustness.csv`.
 
 ## Datos: fuente, limpieza y validación
 
-* Fuente: CME Globex vía Databento (`GLBX.MDP3`, `ohlcv-1m`, símbolo continuo `NQ.c.0`), rama `data-exports` de este repo. VIX diario: CBOE vía `datasets/finance-vix` (GitHub).
+* Fuente: CME Globex vía Databento (`GLBX.MDP3`, `ohlcv-1m`, símbolo continuo `NQ.c.0`), archivo `raw_NQ_c_0_1m.csv` (exportado por el workflow de Databento de este repo). VIX diario: CBOE vía `datasets/finance-vix` (GitHub).
 * Solo se usa la sesión regular 09:30-16:00 ET (390 velas/día). Datos limpios en `data/clean/NQ_rth_1m_clean.csv.gz` y banderas por día en `data/clean/NQ_daily_flags.csv`.
 
 Bitácora de chequeos:
@@ -80,10 +80,10 @@ Bitácora de chequeos:
 * 2026-06-19: día NO hábil de contado (feriado NYSE, futuro con sesión recortada, 210 velas RTH) -> excluido
 * 2026-07-03: día NO hábil de contado (feriado NYSE, futuro con sesión recortada, 210 velas RTH) -> excluido
 * 2026-09-07: día NO hábil de contado (feriado NYSE, futuro con sesión recortada, 210 velas RTH) -> excluido
-* 2026-03-19: contrato en semana de vencimiento, volumen RTH 22,375 (6% de la mediana) -> no operable
-* 2026-06-15: contrato en semana de vencimiento, volumen RTH 98,742 (26% de la mediana) -> no operable
-* 2026-06-16: contrato en semana de vencimiento, volumen RTH 55,243 (14% de la mediana) -> no operable
-* 2026-06-17: contrato en semana de vencimiento, volumen RTH 26,211 (7% de la mediana) -> no operable
+* 2026-03-19: contrato en semana de vencimiento, volumen RTH 22,375 (6% de la mediana móvil) -> no operable
+* 2026-06-15: contrato en semana de vencimiento, volumen RTH 98,742 (25% de la mediana móvil) -> no operable
+* 2026-06-16: contrato en semana de vencimiento, volumen RTH 55,243 (14% de la mediana móvil) -> no operable
+* 2026-06-17: contrato en semana de vencimiento, volumen RTH 26,211 (6% de la mediana móvil) -> no operable
 * 2026-03-19: cierre previo pertenece a otro contrato (o no existe) -> retornos close-to-close y gaps de ese día se invalidan
 * 2026-03-23: cierre previo pertenece a otro contrato (o no existe) -> retornos close-to-close y gaps de ese día se invalidan
 * 2026-06-22: cierre previo pertenece a otro contrato (o no existe) -> retornos close-to-close y gaps de ese día se invalidan

@@ -1,3 +1,5 @@
 # CSV crudo de 1m (vive en la rama data-exports; ver scripts/run_intraday_strategies.py)
 data/raw_*.csv
 __pycache__/
+# 1m limpio multi-año (13 MB): se regenera desde la rama data-exports-nq-rth-long
+data/clean_2018_2026/NQ_rth_1m_clean.csv.gz

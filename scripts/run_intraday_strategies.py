@@ -56,7 +56,7 @@ def main():
     ap.add_argument("--out", default=str(OUT))
     ap.add_argument("--clean", default=str(CLEAN))
     args = ap.parse_args()
-    OUT, CLEAN = Path(args.out), Path(args.clean)
+    OUT, CLEAN = Path(args.out).resolve(), Path(args.clean).resolve()
     OUT.mkdir(parents=True, exist_ok=True)
     CLEAN.mkdir(parents=True, exist_ok=True)
 
@@ -143,7 +143,7 @@ def main():
         json.dump(dict(results=results, halves=halves, data_log=data.log), f, indent=2, default=str)
 
     plot_equity(curves, bench_window, OUT / "equity_curve.png")
-    write_report(results, halves, rob, data, OUT / "report.md", rob_start)
+    write_report(results, halves, rob, data, OUT / "report.md", rob_start, args.raw)
     print((OUT / "report.md").read_text())
 
 
@@ -158,8 +158,9 @@ def plot_equity(curves, bench, path):
     series = {**{k: v for k, v in curves.items()}, "NQ buy & hold": bench}
     ends = sorted((100 * (1 + r.values).prod(), n) for n, r in series.items())
     label_y, last = {}, -np.inf
+    gap = 0.035 * (ends[-1][0] - min(100, ends[0][0])) or 1.2
     for v, n in ends:  # separa etiquetas finales que se encimarían
-        last = max(v, last + 1.2)
+        last = max(v, last + gap)
         label_y[n] = last
     for name, r in series.items():
         color, ls, lw = styles.get(name, (GRAY, "-", 1.4))
@@ -192,7 +193,7 @@ def alpha_txt(name, m, bold=False):
     return f"{'**' + a + '**' if bold else a} ({num(m['alpha_t'])})"
 
 
-def write_report(results, halves, rob, data, path, rob_start):
+def write_report(results, halves, rob, data, path, rob_start, raw_name):
     L = []
     L.append("# Backtest: momentum intradía en el US100 (futuro NQ, CME, velas de 1 minuto)\n")
     L.append("Generado por `scripts/run_intraday_strategies.py`. Todas las cifras son **netas de costos** "
@@ -216,7 +217,8 @@ def write_report(results, halves, rob, data, path, rob_start):
              "Benchmark = NQ comprado y mantenido (cierre a cierre de la sesión regular). Sharpe/Sortino con rf = 0 "
              "porque el P&L de un futuro ya es retorno en exceso. Sortino = media / desviación a la baja (MAR = 0) × √252. "
              "IC 90 % y P(media≤0) por bootstrap por bloques (5 000 réplicas, bloque medio de 5 días). "
-             "CAGR anualiza un periodo de < 6 meses: tómalo como referencia, no como expectativa.\n")
+             + ("CAGR anualiza un periodo de < 1 año: tómalo como referencia, no como expectativa.\n"
+                if next(iter(results.values()))["days"] < 252 else "\n"))
 
     L.append("### Misma ventana para todas (desde que S1 termina su calentamiento de 14 días)\n")
     L.append("| Estrategia | Ventana | Trades | Retorno | Sharpe | Sortino | Máx. DD | Alfa anual (t) | Beta |")
@@ -259,10 +261,10 @@ def write_report(results, halves, rob, data, path, rob_start):
     L.append("\nTabla completa en `robustness.csv`.\n")
 
     L.append("## Datos: fuente, limpieza y validación\n")
-    L.append("* Fuente: CME Globex vía Databento (`GLBX.MDP3`, `ohlcv-1m`, símbolo continuo `NQ.c.0`), rama "
-             "`data-exports` de este repo. VIX diario: CBOE vía `datasets/finance-vix` (GitHub).")
+    L.append("* Fuente: CME Globex vía Databento (`GLBX.MDP3`, `ohlcv-1m`, símbolo continuo `NQ.c.0`), archivo "
+             f"`{Path(raw_name).name}` (exportado por el workflow de Databento de este repo). VIX diario: CBOE vía `datasets/finance-vix` (GitHub).")
     L.append("* Solo se usa la sesión regular 09:30-16:00 ET (390 velas/día). Datos limpios en "
-             "`data/clean/NQ_rth_1m_clean.csv.gz` y banderas por día en `data/clean/NQ_daily_flags.csv`.\n")
+             f"`{CLEAN.relative_to(ROOT)}/NQ_rth_1m_clean.csv.gz` y banderas por día en `{CLEAN.relative_to(ROOT)}/NQ_daily_flags.csv`.\n")
     L.append("Bitácora de chequeos:\n")
     for line in data.log:
         L.append(f"* {line}")

@@ -82,10 +82,14 @@ def _easter(y):
 
 
 def nyse_holidays(year: int) -> set:
-    h = [_observed(pd.Timestamp(year=year, month=1, day=1)), _nth_weekday(year, 1, 0, 3), _nth_weekday(year, 2, 0, 3),
-         _easter(year) - pd.Timedelta(days=2), _last_weekday(year, 5, 0),
-         _observed(pd.Timestamp(year=year, month=6, day=19)), _observed(pd.Timestamp(year=year, month=7, day=4)),
+    ny = pd.Timestamp(year=year, month=1, day=1)
+    h = [_nth_weekday(year, 1, 0, 3), _nth_weekday(year, 2, 0, 3),
+         _easter(year) - pd.Timedelta(days=2), _last_weekday(year, 5, 0), _observed(pd.Timestamp(year=year, month=7, day=4)),
          _nth_weekday(year, 9, 0, 1), _nth_weekday(year, 11, 3, 4), _observed(pd.Timestamp(year=year, month=12, day=25))]
+    if ny.weekday() != 5:  # Año Nuevo en sábado no se recorre al viernes (regla NYSE)
+        h.append(_observed(ny))
+    if year >= 2022:  # Juneteenth es feriado de NYSE desde 2022
+        h.append(_observed(pd.Timestamp(year=year, month=6, day=19)))
     # cierres extraordinarios de NYSE (funerales de Estado, etc.)
     special = {2018: ["2018-12-05"], 2025: ["2025-01-09"]}
     h += [pd.Timestamp(x) for x in special.get(year, [])]
@@ -133,7 +137,8 @@ def build(raw: pd.DataFrame, vix: pd.Series) -> CleanData:
     # --- contratos (rolls) ---------------------------------------------
     cash_days = nyse_trading_days(raw.index.min() - pd.Timedelta(days=10), raw.index.max())
     expiries = quarterly_expiries(raw.index.min(), raw.index.max(),
-                                  nyse_trading_days(raw.index.min(), raw.index.max() + pd.Timedelta(days=120)))
+                                  nyse_trading_days(raw.index.min() - pd.Timedelta(days=366),
+                                                    raw.index.max() + pd.Timedelta(days=120)))
     contract = np.zeros(len(raw), dtype=int)
     for e in expiries:
         contract += (raw.index >= e).astype(int)
