@@ -49,10 +49,18 @@ def num(x, d=2):
 
 
 def main():
+    import argparse
+    global OUT, CLEAN
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--raw", default=str(ROOT / "data" / "raw_NQ_c_0_1m.csv"))
+    ap.add_argument("--out", default=str(OUT))
+    ap.add_argument("--clean", default=str(CLEAN))
+    args = ap.parse_args()
+    OUT, CLEAN = Path(args.out), Path(args.clean)
     OUT.mkdir(parents=True, exist_ok=True)
     CLEAN.mkdir(parents=True, exist_ok=True)
 
-    raw = D.load_raw(ROOT / "data" / "raw_NQ_c_0_1m.csv")
+    raw = D.load_raw(args.raw)
     vix = D.load_vix(ROOT / "data" / "vix_daily.csv")
     data = D.build(raw, vix)
     daily = data.daily
@@ -94,13 +102,14 @@ def main():
 
     # --- robustez --------------------------------------------------------
     rob = []
+    rob_start = S.noise_band_momentum(data, lookback=20, sizing="unlevered")[0].index[0]
     for lb in (10, 14, 20):
         for sizing in ("voltarget", "unlevered"):
             for ex in ("next_open", "mark_close"):
                 for cm in (0.0, 1.0, 2.0):
                     r, tr = S.noise_band_momentum(data, lookback=lb, sizing=sizing, execution=ex,
                                                   cost_pts=cm * S.COST_PTS_PER_SIDE)
-                    r = r[r.index >= pd.Timestamp("2026-04-20").date()]  # ventana común a todos los lookbacks
+                    r = r[r.index >= rob_start]  # ventana común a todos los lookbacks
                     m = M.summarize(r.ret, bench_all, tr[tr.date.isin(r.index)], boot=False)
                     rob.append(dict(strategy="S1", lookback=lb, sizing=sizing, execution=ex, cost_x=cm,
                                     total=m["total_return"], sharpe=m["sharpe"], sortino=m["sortino"],
@@ -119,18 +128,22 @@ def main():
     rob = pd.DataFrame(rob)
     rob.to_csv(OUT / "robustness.csv", index=False)
 
-    # sub-periodos (mitades) para las configuraciones principales
+    # sub-periodos: por año calendario si hay más de un año, si no, por mitades
     halves = {}
     for name, r in curves.items():
-        mid = r.index[len(r) // 2]
-        halves[name] = {h: M.summarize(x, bench_all, None, boot=False) for h, x in
-                        (("1a mitad", r[r.index < mid]), ("2a mitad", r[r.index >= mid]))}
+        years = pd.Index([d.year for d in r.index])
+        if years.nunique() > 1:
+            parts = [(str(y), r[years == y]) for y in sorted(years.unique())]
+        else:
+            mid = r.index[len(r) // 2]
+            parts = [("1a mitad", r[r.index < mid]), ("2a mitad", r[r.index >= mid])]
+        halves[name] = {h: M.summarize(x, bench_all, None, boot=False) for h, x in parts if len(x) > 5}
 
     with open(OUT / "metrics.json", "w") as f:
         json.dump(dict(results=results, halves=halves, data_log=data.log), f, indent=2, default=str)
 
     plot_equity(curves, bench_window, OUT / "equity_curve.png")
-    write_report(results, halves, rob, data, OUT / "report.md")
+    write_report(results, halves, rob, data, OUT / "report.md", rob_start)
     print((OUT / "report.md").read_text())
 
 
@@ -179,7 +192,7 @@ def alpha_txt(name, m, bold=False):
     return f"{'**' + a + '**' if bold else a} ({num(m['alpha_t'])})"
 
 
-def write_report(results, halves, rob, data, path):
+def write_report(results, halves, rob, data, path, rob_start):
     L = []
     L.append("# Backtest: momentum intradía en el US100 (futuro NQ, CME, velas de 1 minuto)\n")
     L.append("Generado por `scripts/run_intraday_strategies.py`. Todas las cifras son **netas de costos** "
@@ -213,8 +226,8 @@ def write_report(results, halves, rob, data, path):
         L.append(f"| {name} | {m['start']} → {m['end']} | {m['n_trades']} | {pct(m['total_return'])} | {num(m['sharpe'])} | "
                  f"{num(m['sortino'])} | {pct(m['max_drawdown'])} | {alpha_txt(name, m)} | {num(m['beta'])} |")
 
-    L.append("\n### Estabilidad por sub-periodo (mitades)\n")
-    L.append("| Estrategia | Mitad | Retorno | Sharpe | Sortino | Máx. DD |")
+    L.append("\n### Estabilidad por sub-periodo\n")
+    L.append("| Estrategia | Periodo | Retorno | Sharpe | Sortino | Máx. DD |")
     L.append("|---|---|---|---|---|---|")
     for name, hs in halves.items():
         for h, m in hs.items():
@@ -225,7 +238,7 @@ def write_report(results, halves, rob, data, path):
     s2 = rob[rob.strategy == "S2"]
     L.append("\n## Robustez\n")
     L.append("**S1** — 36 variantes (lookback 10/14/20 × sizing vol-target/1x × ejecución siguiente-apertura/precio-de-señal "
-             "× costos 0/1x/2x), todas medidas desde 2026-04-20 para que la ventana sea idéntica: "
+             f"× costos 0/1x/2x), todas medidas desde {rob_start} para que la ventana sea idéntica: "
              f"Sharpe mediano {num(s1.sharpe.median())}, rango [{num(s1.sharpe.min())}, {num(s1.sharpe.max())}]; "
              f"{int((s1.total > 0).sum())}/{len(s1)} variantes con retorno positivo.\n")
     piv = s1[(s1.execution == "next_open") & (s1.cost_x == 1.0)].pivot_table(index="lookback", columns="sizing",

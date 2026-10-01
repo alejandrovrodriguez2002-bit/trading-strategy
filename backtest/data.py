@@ -86,6 +86,9 @@ def nyse_holidays(year: int) -> set:
          _easter(year) - pd.Timedelta(days=2), _last_weekday(year, 5, 0),
          _observed(pd.Timestamp(year=year, month=6, day=19)), _observed(pd.Timestamp(year=year, month=7, day=4)),
          _nth_weekday(year, 9, 0, 1), _nth_weekday(year, 11, 3, 4), _observed(pd.Timestamp(year=year, month=12, day=25))]
+    # cierres extraordinarios de NYSE (funerales de Estado, etc.)
+    special = {2018: ["2018-12-05"], 2025: ["2025-01-09"]}
+    h += [pd.Timestamp(x) for x in special.get(year, [])]
     return {d.date() for d in h}
 
 
@@ -169,7 +172,9 @@ def build(raw: pd.DataFrame, vix: pd.Series) -> CleanData:
     daily = pd.DataFrame(rows).set_index("date")
 
     daily["cash_day"] = [d in cash_days for d in daily.index]
-    med = daily.loc[daily.cash_day, "rth_volume"].median()
+    # mediana móvil (60 días hábiles, centrada) porque el volumen de NQ cambia mucho entre años
+    vol_cash = daily.loc[daily.cash_day, "rth_volume"]
+    med = vol_cash.rolling(60, center=True, min_periods=20).median().reindex(daily.index).ffill().bfill()
     daily["liquid"] = daily.rth_volume >= LIQUIDITY_MIN_FRACTION * med
     daily["complete"] = (daily.missing <= MAX_MISSING_MINUTES) & ~daily.first_bar_missing
     daily["tradable"] = daily.cash_day & daily.liquid & daily.complete
@@ -190,8 +195,13 @@ def build(raw: pd.DataFrame, vix: pd.Series) -> CleanData:
         log.append(f"{d}: día NO hábil de contado (feriado NYSE, futuro con sesión recortada, {r.n_bars} velas RTH) -> excluido")
     for d, r in daily[daily.cash_day & ~daily.liquid & daily.complete].iterrows():
         log.append(f"{d}: contrato en semana de vencimiento, volumen RTH {r.rth_volume:,.0f} "
-                   f"({r.rth_volume / med:.0%} de la mediana) -> no operable")
-    for d, r in daily[daily.cash_day & ~daily.complete].iterrows():
+                   f"({r.rth_volume / med[d]:.0%} de la mediana móvil) -> no operable")
+    inc = daily[daily.cash_day & ~daily.complete]
+    early = inc[inc.n_bars.between(200, 215)]  # cierres anticipados a las 13:00 (víspera de feriado)
+    if len(early):
+        log.append(f"{len(early)} días con cierre anticipado de NYSE a las 13:00 (210 velas) -> no operables: "
+                   + ", ".join(str(d) for d in early.index))
+    for d, r in inc.drop(early.index).iterrows():
         log.append(f"{d}: {r.missing} minutos RTH faltantes -> no operable")
     for d in daily[daily.cash_day & ~daily.prev_close_valid].index:
         log.append(f"{d}: cierre previo pertenece a otro contrato (o no existe) -> retornos close-to-close y "
