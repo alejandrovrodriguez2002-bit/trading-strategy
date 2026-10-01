@@ -23,6 +23,10 @@ on:
         description: "true = no filtrar a horario regular NY 09:30-16:00 (necesario para sesiones de Asia/Londres en futuros 24h)"
         required: false
         default: "false"
+      export_branch:
+        description: "Rama donde se commitean los CSV (se sobrescribe con force-push)"
+        required: false
+        default: "data-exports"
 
 jobs:
   fetch-candles:
@@ -64,7 +68,7 @@ jobs:
           path: data/databento_*.csv
           if-no-files-found: warn
 
-      - name: Commit CSVs to a data-exports branch
+      - name: Commit CSVs to the export branch
         run: |
           shopt -s nullglob
           files=(data/databento_*.csv)
@@ -74,7 +78,8 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -B data-exports
+          BRANCH="${{ github.event.inputs.export_branch || 'data-exports' }}"
+          git checkout -B "$BRANCH"
           git add -f data/databento_*.csv
           git commit -m "Databento candles export ($(date -u +%Y-%m-%dT%H:%M:%SZ))" || echo "Nada que commitear"
-          git push -f origin data-exports
+          git push -f origin "$BRANCH"
