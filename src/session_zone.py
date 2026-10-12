@@ -28,6 +28,15 @@ Misma lógica que la variante validada, sin reinventar nada:
 6. Si no toca ni SL ni TP dentro del horizonte de búsqueda, se cierra al
    precio de la última vela de ese horizonte.
 
+Opcional (`volume_subwindow_hours`): en vez de usar el high/low de TODA
+la ventana marcada, se busca la sub-ventana contigua de esa duración con
+MÁS volumen dentro de la zona, y se usan el high/low (y el POC, si
+aplica) de esa sub-ventana -- pensado para sesiones largas como Asia
+(9h), donde los bordes de baja liquidez pueden meter ruido en el rango.
+El horizonte de búsqueda de la reacción sigue arrancando al final de la
+ventana marcada COMPLETA (no de la sub-ventana), para no adelantar el
+inicio de la búsqueda.
+
 Las sesiones (horario de NY, con el reloj típico de FX/futuros) y las
 zonas resultantes se definen en `ZONES` al final de este archivo --
 incluye las 6 zonas de 30 min (Asia/Londres/NY, primeros/últimos) y
@@ -59,6 +68,7 @@ class SessionZoneConfig:
     tp_r_multiple: float = 1.5
     sl_buffer_pct: float = 0.03
     poc_bins: int = 30
+    volume_subwindow_hours: Optional[float] = None
 
     # solo se usan si sl_mode == "liquidity" (reutiliza src/strategy.py por duck typing)
     liquidity_filter_enabled: bool = True
@@ -95,6 +105,29 @@ class Trade:
 def _hm_to_timedelta(hm: str) -> pd.Timedelta:
     h, m = (int(x) for x in hm.split(":"))
     return pd.Timedelta(hours=h, minutes=m)
+
+
+def _infer_bar_minutes(df: pd.DataFrame) -> float:
+    """Duración de vela en minutos, inferida de la mediana de separación
+    entre índices consecutivos (robusto a huecos de fin de semana/feriados)."""
+    diffs = df.index.to_series().diff().dropna()
+    return diffs.median().total_seconds() / 60.0
+
+
+def _high_volume_subwindow(df: pd.DataFrame, mark_start_pos: int, mark_end_pos: int, window_bars: int):
+    """Dentro de [mark_start_pos, mark_end_pos), devuelve (sub_start_pos,
+    sub_end_pos) de la sub-ventana CONTIGUA de `window_bars` velas con
+    mayor volumen total -- para quedarse con el "núcleo" de mayor
+    actividad de una sesión larga y descartar sus bordes de bajo volumen."""
+    span = mark_end_pos - mark_start_pos
+    window_bars = min(window_bars, span)
+    if window_bars <= 0:
+        return mark_start_pos, mark_end_pos
+    vols = df["volume"].iloc[mark_start_pos:mark_end_pos].reset_index(drop=True)
+    rolling_sum = vols.rolling(window_bars).sum()
+    best_end_rel = int(rolling_sum.iloc[window_bars - 1 :].idxmax())
+    best_start_rel = best_end_rel - window_bars + 1
+    return mark_start_pos + best_start_rel, mark_start_pos + best_end_rel + 1
 
 
 def _iter_zone_occurrences(df: pd.DataFrame, cfg: SessionZoneConfig):
@@ -134,12 +167,21 @@ def generate_trades_zone(df: pd.DataFrame, cfg: SessionZoneConfig) -> pd.DataFra
     trades: list[Trade] = []
     equity = cfg.starting_equity
 
+    subwindow_bars = None
+    if cfg.volume_subwindow_hours is not None:
+        bar_minutes = _infer_bar_minutes(df)
+        subwindow_bars = max(1, round(cfg.volume_subwindow_hours * 60.0 / bar_minutes))
+
     for ref_date, mark_start_pos, mark_end_pos, search_end_pos in _iter_zone_occurrences(df, cfg):
-        mark_slice = df.iloc[mark_start_pos:mark_end_pos]
-        if mark_slice.empty:
+        if subwindow_bars is not None:
+            level_start_pos, level_end_pos = _high_volume_subwindow(df, mark_start_pos, mark_end_pos, subwindow_bars)
+        else:
+            level_start_pos, level_end_pos = mark_start_pos, mark_end_pos
+        level_slice = df.iloc[level_start_pos:level_end_pos]
+        if level_slice.empty:
             continue
-        zone_high = float(mark_slice["high"].max())
-        zone_low = float(mark_slice["low"].min())
+        zone_high = float(level_slice["high"].max())
+        zone_low = float(level_slice["low"].min())
         if zone_high <= zone_low:
             continue
 
@@ -189,7 +231,7 @@ def generate_trades_zone(df: pd.DataFrame, cfg: SessionZoneConfig) -> pd.DataFra
                 continue  # el lado opuesto de la zona ya quedó del lado equivocado -> sin objetivo válido
             tp = candidate_tp
         elif cfg.tp_mode == "poc":
-            poc_ref = _session_poc(mark_slice, n_bins=cfg.poc_bins)
+            poc_ref = _session_poc(level_slice, n_bins=cfg.poc_bins)
             if poc_ref is None:
                 continue
             if (direction == "long" and poc_ref <= entry_price) or (

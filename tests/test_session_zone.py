@@ -1,3 +1,5 @@
+import dataclasses
+
 import pandas as pd
 
 from src.session_zone import SessionZoneConfig, generate_trades_zone, run_backtest_zone
@@ -154,6 +156,42 @@ def test_liquidity_sl_mode_falls_back_to_farther_swing_without_liquidity_on_near
     t = trades.iloc[0]
     assert t["direction"] == "short"
     assert t["sl"] == 110.0  # ancla en el swing con liquidez real, no en el de 105
+
+
+def test_volume_subwindow_ignores_low_volume_noise_at_the_edges():
+    """Con volume_subwindow_hours, el high/low de la zona debe salir de la
+    sub-ventana contigua con MÁS volumen, ignorando una mecha de volumen
+    bajo en otra parte de la ventana marcada (ruido de borde)."""
+    n = 40
+    idx = pd.date_range("2026-01-05 19:00", periods=n, freq="5min", tz="America/New_York")
+    rows = [_bar(100, 100.2, 99.8, 100, 100) for _ in range(n)]
+    # vela 1: mecha de ruido de BAJO volumen -- no debería definir el rango
+    rows[1] = _bar(100, 110, 99.8, 100, 100)
+    # velas 4-7: núcleo de ALTO volumen -- esto debe definir el rango real
+    rows[4] = _bar(100, 101.0, 99.8, 100, 5000)
+    rows[5] = _bar(100, 100.5, 99.0, 100, 5000)
+    rows[6] = _bar(100, 100.8, 99.5, 100, 5000)
+    rows[7] = _bar(100, 100.9, 99.6, 100, 5000)
+    # vela 12 (fuera de la zona, zone_end=20:00 cae en la posición 12): rompe
+    # el high del núcleo (101.0) pero NO el high de toda la ventana (110)
+    rows[12] = _bar(100, 101.5, 100, 101.2, 1000)
+    df = pd.DataFrame(rows, index=idx)
+
+    cfg_subwindow = SessionZoneConfig(
+        zone_start="19:00", zone_end="20:00", search_hours=2.0,
+        volume_subwindow_hours=20 / 60, sl_buffer_pct=0.03, slippage_bps=0.0,
+    )
+    trades = generate_trades_zone(df, cfg_subwindow)
+    assert len(trades) == 1
+    t = trades.iloc[0]
+    assert t["zone_high"] == 101.0 and t["zone_low"] == 99.0  # del núcleo, no de toda la ventana
+    assert t["direction"] == "short"
+
+    # sin volume_subwindow_hours, el ruido de la vela 1 (110) infla el
+    # zone_high y la vela 12 ya no alcanza a romperlo -> sin trade
+    cfg_full_range = dataclasses.replace(cfg_subwindow, volume_subwindow_hours=None)
+    trades_full = generate_trades_zone(df, cfg_full_range)
+    assert len(trades_full) == 0
 
 
 def test_run_backtest_zone_builds_equity_curve():

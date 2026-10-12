@@ -819,11 +819,49 @@ Conclusión honesta: la dirección del concepto es correcta (reacción >
 continuación, SL con liquidez > SL en la mecha pura, para este setup
 específico) pero la edge **no alcanza el nivel de robustez** de la
 variante de apertura de NY — solo funciona en una granularidad (5m), con
-una muestra moderada (52 trades en test) dominada por un solo mes. No se
-recomienda operar esto en vivo sin más validación (más historial, otros
-períodos, o ajustar el concepto — p.ej. probar con el rango de Asia
-recortado a su core de mayor volumen, en vez de la sesión completa de 9h
-que puede incluir ruido de baja liquidez en sus bordes).
+una muestra moderada (52 trades en test) dominada por un solo mes.
+
+### Intento de "limpiar" la señal con el núcleo de mayor volumen de Asia — tampoco ayuda
+
+A pedido, se probó recortar el rango de Asia a solo su **sub-ventana de
+mayor volumen** dentro de las 9h de la sesión (en vez de usar el high/low
+de toda la sesión), para descartar el ruido de baja liquidez en los
+bordes. `src/session_zone.py` ahora soporta `volume_subwindow_hours`:
+busca la sub-ventana contigua de esa duración con más volumen dentro de
+la zona marcada, y usa el high/low (y el POC) de esa sub-ventana en vez
+de toda la ventana.
+
+Para no repetir el error de dejar que un barrido libre elija demasiados
+parámetros a la vez (y volver a caer en sobreajuste), se aisló **una sola
+variable**: se fijó la receta ya identificada como la mejor de la sección
+anterior (fade, SL "liquidity", TP=1.5R) y se varió SOLO el tamaño del
+núcleo de volumen (1h a 6h), en train y test, en 5m y 15m:
+
+| Núcleo | 5m train PF | 5m test PF | 15m train PF | 15m test PF |
+|---|---|---|---|---|
+| **Rango completo (9h)** | **2.40** | **1.51** | **2.15** | **0.97** |
+| 1h (más volumen) | 0.67 | 1.15 | 1.45 | 0.52 |
+| 2h (más volumen) | 1.21 | 0.95 | 1.33 | 0.52 |
+| 3h (más volumen) | 1.15 | 0.65 | 1.86 | 0.66 |
+| 4h (más volumen) | 0.79 | 0.87 | 1.13 | 0.80 |
+| 5h (más volumen) | 0.91 | 0.77 | 1.24 | 0.55 |
+| 6h (más volumen) | 1.14 | 0.70 | 1.58 | 0.58 |
+
+**El rango completo le gana a CUALQUIER sub-ventana de mayor volumen
+probada, en ambos timeframes, sin excepción.** Por curiosidad (y porque
+es barato de probar) se chequeó también la hipótesis contraria —
+quedarse con el núcleo de **menor** volumen (la consolidación tranquila,
+que es a lo que en realidad suele referirse la literatura ICT sobre el
+"rango asiático", no al pico de actividad) — y tampoco mejora: el mejor
+caso ahí (4h de menor volumen, 5m) da PF 1.31/1.13 train/test, todavía
+por debajo del rango completo (2.40/1.51).
+
+Conclusión: para este setup específico, **recortar el rango de Asia por
+volumen (en cualquier dirección) empeora el resultado** respecto a usar
+la sesión completa — se documenta la función (`volume_subwindow_hours`,
+con test unitario) porque es una herramienta reutilizable y la pregunta
+era válida, pero la respuesta real es que no ayuda aquí. No se
+recomienda operar esta variante en vivo sin más validación.
 
 ## Próximos pasos sugeridos
 
@@ -841,8 +879,10 @@ que puede incluir ruido de baja liquidez en sus bordes).
   mostraron edge.
 - **Reacción al rango de Asia durante Londres**: señal real pero débil,
   no robusta — solo funciona en 5m, con el 78% de la ganancia
-  concentrada en un solo mes (ver sección arriba). No se recomienda
-  operar sin más validación.
+  concentrada en un solo mes (ver sección arriba). Recortar el rango de
+  Asia a su núcleo de mayor (o menor) volumen se probó y empeora el
+  resultado, no es el camino. No se recomienda operar sin más
+  validación.
 - Pasos para llevar el fade de OR30 más allá de esta validación inicial:
   forward-test en papel unas semanas, probar en otros períodos/rangos de
   fechas (para confirmar que no es específico a este régimen de mercado
