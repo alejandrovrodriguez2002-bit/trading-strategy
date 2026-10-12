@@ -16,9 +16,18 @@ limita; con el tope, el riesgo real de esos trades queda por debajo del
 1% nominal, y el R-multiple se recalcula sobre el riesgo real. Ver
 src/simple_orb.py.
 
+--source permite correr el mismo barrido sobre NQ (futuro E-mini
+Nasdaq-100, CME Globex) en vez de QQQ -- usado como PROXY de US100 (el
+ticker de índice CFD que ofrecen brokers como Capital.com/IG/OANDA):
+US100 no cotiza en ninguna bolsa real, así que no hay datos de Databento
+para ese símbolo exacto, pero NQ es el subyacente real que esos brokers
+usan para construir el precio de US100 -- el movimiento es prácticamente
+idéntico, solo cambia el spread/comisión del broker.
+
 Uso:
-    python scripts/run_simple_orb_grid.py                  # 1m, 2m, 3m, 5m
-    python scripts/run_simple_orb_grid.py --interval 1m
+    python scripts/run_simple_orb_grid.py                      # QQQ, 1m/2m/3m/5m
+    python scripts/run_simple_orb_grid.py --source nq           # NQ (proxy US100), 1m/2m/3m/5m
+    python scripts/run_simple_orb_grid.py --source nq --interval 5m
 """
 import argparse
 import dataclasses
@@ -33,11 +42,19 @@ from src.data import load_csv  # noqa: E402
 from src.metrics import compute_metrics  # noqa: E402
 from src.simple_orb import SimpleORBConfig, run_backtest_simple  # noqa: E402
 
-SOURCES = {
-    "1m": "data/databento_QQQ_1m_candles.csv",
-    "2m": "data/databento_QQQ_2m_candles.csv",
-    "3m": "data/databento_QQQ_3m_candles.csv",
-    "5m": "data/databento_QQQ_5m_candles.csv",
+SOURCES_BY_INSTRUMENT = {
+    "qqq": {
+        "1m": "data/databento_QQQ_1m_candles.csv",
+        "2m": "data/databento_QQQ_2m_candles.csv",
+        "3m": "data/databento_QQQ_3m_candles.csv",
+        "5m": "data/databento_QQQ_5m_candles.csv",
+    },
+    "nq": {  # proxy de US100 -- ver nota arriba
+        "1m": "data/databento_NQ_c_0_1m_candles.csv",
+        "2m": "data/databento_NQ_c_0_2m_candles.csv",
+        "3m": "data/databento_NQ_c_0_3m_candles.csv",
+        "5m": "data/databento_NQ_c_0_5m_candles.csv",
+    },
 }
 
 OR_MINUTES_GRID = [15, 25, 30, 35, 45]
@@ -130,18 +147,22 @@ def run_for_interval(label: str, path: str, outdir: Path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--interval", default=None, choices=list(SOURCES.keys()),
-                         help="Un solo intervalo; default: corre 1m y 5m")
-    parser.add_argument("--outdir", default="results/simple_orb_grid")
+    parser.add_argument("--source", default="qqq", choices=list(SOURCES_BY_INSTRUMENT.keys()),
+                         help="qqq (default) o nq (proxy de US100 -- ver docstring)")
+    parser.add_argument("--interval", default=None,
+                         help="Un solo intervalo (1m/2m/3m/5m); default: los 4")
+    parser.add_argument("--outdir", default=None,
+                         help="Default: results/simple_orb_grid (qqq) o results/simple_orb_grid_nq (nq)")
     args = parser.parse_args()
 
-    outdir = Path(args.outdir)
+    sources = SOURCES_BY_INSTRUMENT[args.source]
+    outdir = Path(args.outdir or f"results/simple_orb_grid{'' if args.source == 'qqq' else '_' + args.source}")
     outdir.mkdir(parents=True, exist_ok=True)
 
     intervals = [args.interval] if args.interval else ["1m", "2m", "3m", "5m"]
     results = {}
     for label in intervals:
-        path = SOURCES[label]
+        path = sources[label]
         if not Path(path).exists():
             print(f"[{label}] archivo no encontrado, se omite: {path}")
             continue
@@ -152,10 +173,12 @@ def main():
 
     # ---------------- Reporte markdown ----------------
     md_path = outdir / "simple_orb_grid_report.md"
+    instrument_label = "QQQ" if args.source == "qqq" else "NQ (futuro CME, usado como PROXY de US100 -- ver docstring del script; US100 no cotiza en ninguna bolsa real, no hay datos de Databento para ese ticker exacto)"
     with open(md_path, "w") as f:
-        f.write("# ORB clásico (sin absorción CVD): barrido de parámetros con split train/test\n\n")
+        f.write(f"# ORB clásico (sin absorción CVD): barrido de parámetros con split train/test -- {instrument_label}\n\n")
         f.write(
-            "Split honesto por fecha: la primera mitad de los ~6 meses reales de QQQ se usa "
+            f"Instrumento: {instrument_label}.\n\n"
+            "Split honesto por fecha: la primera mitad del historial real se usa "
             "para elegir la mejor combinación de parámetros por Sortino ratio (train); la "
             "segunda mitad se evalúa SOLO con esa combinación ya elegida, sin volver a buscar "
             "parámetros (test, fuera de muestra). Esto es lo mínimo para no reportar un número "
