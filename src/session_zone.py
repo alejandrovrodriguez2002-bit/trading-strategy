@@ -16,15 +16,23 @@ Misma lógica que la variante validada, sin reinventar nada:
 3. Modo "fade" (default, el validado): se entra EN CONTRA del rompimiento
    -- rompe el high -> SHORT; rompe el low -> LONG. Relleno al nivel (o al
    open de la vela si abre en gap más allá).
-4. Stop loss: el extremo real (mecha) de la vela que rompió el rango +
-   buffer (0.03% por defecto) -- no el nivel de la zona.
-5. Take profit: múltiplo fijo de R (1.5R por defecto, el mismo de la
-   variante validada).
+4. Stop loss (`sl_mode`): "or_opposite" (default) -- el extremo real
+   (mecha) de la vela que rompió el rango + buffer (0.03% por defecto);
+   o "liquidity" -- el swing histórico más cercano en contra que además
+   sea un pool de liquidez genuino (reutiliza `_is_liquidity_level`/
+   `_historical_swings` de src/strategy.py por duck typing).
+5. Take profit (`tp_mode`): "r_multiple" (default, 1.5R fijo, el de la
+   variante validada); "opposite_extreme" -- el lado de la zona que NO se
+   rompió; o "poc" -- el Punto de Control (más volumen) de la ventana de
+   marcado (reutiliza `_session_poc` de src/simple_orb.py).
 6. Si no toca ni SL ni TP dentro del horizonte de búsqueda, se cierra al
    precio de la última vela de ese horizonte.
 
-Las sesiones (horario de NY, con el reloj típico de FX/futuros) y las 6
-zonas resultantes se definen en `ZONES` al final de este archivo.
+Las sesiones (horario de NY, con el reloj típico de FX/futuros) y las
+zonas resultantes se definen en `ZONES` al final de este archivo --
+incluye las 6 zonas de 30 min (Asia/Londres/NY, primeros/últimos) y
+`asia_range_london_reaction` (todo el rango de Asia, operado durante
+Londres).
 """
 from __future__ import annotations
 
@@ -33,8 +41,9 @@ from typing import Optional
 
 import pandas as pd
 
-from .simple_orb import _find_breakout_fill
-from .strategy import _apply_slippage, _simulate_exit
+from .simple_orb import _find_breakout_fill, _session_poc
+from .strategy import _apply_slippage, _historical_swings, _is_liquidity_level, _simulate_exit
+from .swings import nearest_pivots
 
 
 @dataclasses.dataclass
@@ -44,8 +53,19 @@ class SessionZoneConfig:
     search_hours: float  # horas después de zone_end en las que se busca el rompimiento
 
     direction_mode: str = "fade"  # "fade" (validado) | "breakout" (continuación, referencia)
+
+    sl_mode: str = "or_opposite"  # "or_opposite" (mecha real) | "liquidity" (swing con volumen alto)
+    tp_mode: str = "r_multiple"  # "r_multiple" | "opposite_extreme" | "poc"
     tp_r_multiple: float = 1.5
     sl_buffer_pct: float = 0.03
+    poc_bins: int = 30
+
+    # solo se usan si sl_mode == "liquidity" (reutiliza src/strategy.py por duck typing)
+    liquidity_filter_enabled: bool = True
+    liquidity_lookback_bars: int = 20
+    liquidity_multiplier: float = 1.5
+    swing_fractal_window: int = 3
+    swing_lookback_days: int = 5
 
     starting_equity: float = 10_000.0
     risk_per_trade_pct: float = 1.0
@@ -139,11 +159,46 @@ def generate_trades_zone(df: pd.DataFrame, cfg: SessionZoneConfig) -> pd.DataFra
         entry_price = _apply_slippage(raw_fill_price, direction, "entry", cfg.slippage_bps)
 
         buffer = entry_price * cfg.sl_buffer_pct / 100.0
-        sl = (sl_anchor - buffer) if direction == "long" else (sl_anchor + buffer)
+        if cfg.sl_mode == "or_opposite":
+            sl = (sl_anchor - buffer) if direction == "long" else (sl_anchor + buffer)
+        elif cfg.sl_mode == "liquidity":
+            pivots = _historical_swings(df, entry_pos, cfg)
+            sl_kind = "low" if direction == "long" else "high"
+            sl_side = "below" if direction == "long" else "above"
+            sl_pivot_candidates = nearest_pivots(pivots, sl_kind, entry_price, sl_side, n=len(pivots) or 1)
+            sl_pivot = next((p for p in sl_pivot_candidates if _is_liquidity_level(df, p.idx, cfg)), None)
+            if sl_pivot is None:
+                continue  # sin swing de SL con liquidez suficiente
+            sl = (sl_pivot.price - buffer) if direction == "long" else (sl_pivot.price + buffer)
+        else:
+            raise ValueError(f"sl_mode desconocido: {cfg.sl_mode!r}")
+
         risk = abs(entry_price - sl)
         if risk <= 0:
             continue
-        tp = entry_price + cfg.tp_r_multiple * risk if direction == "long" else entry_price - cfg.tp_r_multiple * risk
+
+        if cfg.tp_mode == "r_multiple":
+            tp = entry_price + cfg.tp_r_multiple * risk if direction == "long" else entry_price - cfg.tp_r_multiple * risk
+        elif cfg.tp_mode == "opposite_extreme":
+            # el objetivo es el lado de la zona que NO se rompió -- se define por
+            # `raw_direction` (qué lado se rompió), no por `direction` (invertida en "fade")
+            candidate_tp = zone_low if raw_direction == "long" else zone_high
+            if (direction == "long" and candidate_tp <= entry_price) or (
+                direction == "short" and candidate_tp >= entry_price
+            ):
+                continue  # el lado opuesto de la zona ya quedó del lado equivocado -> sin objetivo válido
+            tp = candidate_tp
+        elif cfg.tp_mode == "poc":
+            poc_ref = _session_poc(mark_slice, n_bins=cfg.poc_bins)
+            if poc_ref is None:
+                continue
+            if (direction == "long" and poc_ref <= entry_price) or (
+                direction == "short" and poc_ref >= entry_price
+            ):
+                continue  # el POC ya quedó del lado equivocado -> sin objetivo válido
+            tp = poc_ref
+        else:
+            raise ValueError(f"tp_mode desconocido: {cfg.tp_mode!r}")
 
         exit_pos, raw_exit_price, exit_reason = _simulate_exit(df, entry_pos, search_end_pos, direction, sl, tp)
         exit_price = _apply_slippage(raw_exit_price, direction, "exit", cfg.slippage_bps)
@@ -226,4 +281,11 @@ ZONES: dict[str, dict] = {
     "london_last30": dict(zone_start="11:30", zone_end="12:00", search_hours=8.5),
     "ny_first30": dict(zone_start="09:30", zone_end="10:00", search_hours=6.0),  # = variante OR30 validada
     "ny_last30": dict(zone_start="15:30", zone_end="16:00", search_hours=6.0),
+    # Rango COMPLETO de la sesión de Asia (19:00-04:00, 9h) marcado, y la
+    # reacción (rompimiento de ese high/low) se busca durante la sesión
+    # de Londres: desde que Asia cierra (04:00) hasta que Londres cierra
+    # (12:00) -> search_hours=8.0. Se sacrifica la hora de solape
+    # 03:00-04:00 (Londres ya abrió pero Asia no cerró) para no usar un
+    # rango de Asia todavía incompleto.
+    "asia_range_london_reaction": dict(zone_start="19:00", zone_end="04:00", search_hours=8.0),
 }

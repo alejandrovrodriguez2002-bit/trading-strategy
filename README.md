@@ -631,6 +631,9 @@ python scripts/run_liquidity_sweep_grid.py
 
 # 6) Zonas de valor Asia/Londres/NY sobre NQ real (confirma ny_first30, descarta las otras 5)
 python scripts/run_session_zone_grid.py
+
+# 7) Reacción al rango de Asia durante Londres (señal real pero débil, no robusta -- ver sección arriba)
+python scripts/run_asia_london_reaction_grid.py
 ```
 
 Esto genera en `results/`: `trades.csv` (log completo de operaciones),
@@ -749,6 +752,79 @@ valor") se probaron de buena fe y no se sostienen — se documentan aquí
 en vez de descartarse en silencio, siguiendo la misma práctica que el
 resto de este README.
 
+## Reacción al rango de Asia durante Londres — señal real pero débil, NO robusta
+
+A pedido, se probó un concepto ICT/SMC específico: marcar el rango
+**completo** de la sesión de Asia (19:00–04:00 ET, 9h — no solo sus
+primeros/últimos 30 min como en la sección anterior) y operar la
+**reacción** (reversión) cuando la sesión de **Londres** toca esos
+niveles — la idea de "barrer la liquidez del rango asiático durante
+Londres".
+
+Se extendió `src/session_zone.py` con los mismos `tp_mode`
+(`r_multiple`/`opposite_extreme`/`poc`) y `sl_mode`
+(`or_opposite`/`liquidity`) que ya existían en `src/simple_orb.py`, se
+agregó la zona `asia_range_london_reaction` (marca 19:00–04:00, busca la
+reacción desde que Asia cierra hasta que Londres cierra, 8h), y se corrió
+`scripts/run_asia_london_reaction_grid.py` (24 combinaciones, split
+honesto train/test) sobre NQ real en 5m y 15m.
+
+**El barrido confirma la intuición direccional**: en ambos timeframes,
+las 6 combinaciones mejor rankeadas en train son TODAS modo **"fade"**
+(reacción/reversión) con SL en modo **"liquidity"** (swing con volumen
+alto) — "breakout"/continuación queda claramente por debajo. Esto es
+consistente con la teoría ICT/SMC que motivó la prueba.
+
+**Pero la edge no es robusta frente a una configuración fija (no
+cherry-picked por intervalo).** El barrido eligió un `tp_r_multiple`
+distinto para cada timeframe (2.0 en 5m, 1.0 en 15m) — dejar que el TP
+también se ajuste por intervalo es, en sí, una forma de sobreajuste. Al
+fijar UNA sola configuración (fade, SL liquidez, TP=1.5R) y correrla en
+5 granularidades sin reajustar nada:
+
+| Intervalo | Train PF | Train Sortino | Test PF | Test Sortino |
+|---|---|---|---|---|
+| 1m | 0.61 | -2.67 | 0.55 | -3.98 |
+| 2m | 0.32 | -5.27 | 0.88 | -0.90 |
+| 3m | 1.95 | 8.58 | 0.88 | -0.86 |
+| **5m** | **2.40** | **11.58** | **1.51** | **3.09** |
+| 15m | 2.15 | 7.55 | 0.97 | -0.19 |
+
+Solo **5m** se sostiene en ambos lados. 1m y 2m son negativos de forma
+consistente. 3m y 15m muestran la firma clásica de sobreajuste de este
+proyecto: train espectacular, test que colapsa a breakeven/negativo.
+
+Incluso el único caso que sobrevive (5m) tiene una concentración de
+resultado preocupante: sobre el histórico completo, **el 78% de la
+ganancia total (401 de 512 USD) vino de un solo mes** (junio), con marzo
+débil, agosto negativo y septiembre claramente negativo (0% de aciertos,
+aunque sobre solo 4 trades). Esto contrasta con la variante de apertura
+de NY, donde ningún mes dominaba así el resultado.
+
+**Nota de modelado (sizing en futuros)**: al revisar los trades de NQ se
+confirmó que, con `max_leverage=1.0`, el tamaño de posición nocional
+nunca supera el equity ($10,000) — pero el "precio" de NQ en este motor
+es del orden de $24,000-30,000 (el índice de puntos, no el valor real de
+un contrato con margen), así que el riesgo real ejecutado por trade queda
+muy por debajo del 1% nominal buscado. Esto es coherente con el resto de
+las pruebas de este proyecto sobre NQ (mismo motor), pero vale la
+salvedad: el tamaño de posición en futuros reales se rige por margen por
+contrato, no por el "precio nocional" como una acción — las cifras de
+profit factor/Sortino (basadas en R, no en el tamaño absoluto) siguen
+siendo válidas como medida de la calidad del patrón, pero el retorno en
+dólares reportado no es directamente comparable al de operar NQ con el
+apalancamiento real de un contrato de futuros.
+
+Conclusión honesta: la dirección del concepto es correcta (reacción >
+continuación, SL con liquidez > SL en la mecha pura, para este setup
+específico) pero la edge **no alcanza el nivel de robustez** de la
+variante de apertura de NY — solo funciona en una granularidad (5m), con
+una muestra moderada (52 trades en test) dominada por un solo mes. No se
+recomienda operar esto en vivo sin más validación (más historial, otros
+períodos, o ajustar el concepto — p.ej. probar con el rango de Asia
+recortado a su core de mayor volumen, en vez de la sesión completa de 9h
+que puede incluir ruido de baja liquidez en sus bordes).
+
 ## Próximos pasos sugeridos
 
 - La estrategia original (ORB + absorción CVD) sigue sin mostrar edge
@@ -763,6 +839,10 @@ resto de este README.
   "Confirmación en US100" y "Zonas de valor" arriba. Las otras 5 zonas
   horarias probadas (Asia/Londres, primeros y últimos 30 min) no
   mostraron edge.
+- **Reacción al rango de Asia durante Londres**: señal real pero débil,
+  no robusta — solo funciona en 5m, con el 78% de la ganancia
+  concentrada en un solo mes (ver sección arriba). No se recomienda
+  operar sin más validación.
 - Pasos para llevar el fade de OR30 más allá de esta validación inicial:
   forward-test en papel unas semanas, probar en otros períodos/rangos de
   fechas (para confirmar que no es específico a este régimen de mercado

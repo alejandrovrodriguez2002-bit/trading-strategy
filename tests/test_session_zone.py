@@ -63,6 +63,99 @@ def test_no_trade_when_no_breakout_within_search_horizon():
     assert len(trades) == 0
 
 
+def test_tp_mode_opposite_extreme_targets_zone_opposite_side():
+    """tp_mode="opposite_extreme": tras romper el zone_high (fade a short),
+    el objetivo es el zone_low -- no un múltiplo de R."""
+    idx = pd.date_range("2026-01-05 19:00", periods=20, freq="5min", tz="America/New_York")
+    rows = [
+        _bar(100, 101, 99, 100.5, 1000),   # zona: zone_high=101
+        _bar(100.5, 100.8, 99.5, 100, 1000),  # zona: zone_low=99
+        _bar(100, 100.2, 99.8, 100, 1000),
+        _bar(100, 100.1, 99.9, 100, 1000),
+        _bar(100, 100.1, 99.9, 100, 1000),
+        _bar(100, 100.1, 99.9, 100, 1000),  # fin de la zona
+        _bar(100, 100.2, 99.8, 100.1, 1000),
+        _bar(100.1, 103, 100, 102.5, 1000),  # rompe el zone_high -> fade a short
+        _bar(102, 102.1, 98.5, 99, 1000),  # baja hasta el zone_low (99) -> TP
+    ] + [_bar(99, 99.1, 98.9, 99, 1000)] * 10
+    df = pd.DataFrame(rows, index=idx[: len(rows)])
+
+    cfg = SessionZoneConfig(zone_start="19:00", zone_end="19:30", search_hours=8.5,
+                             tp_mode="opposite_extreme", sl_buffer_pct=0.03, slippage_bps=0.0)
+    trades = generate_trades_zone(df, cfg)
+    assert len(trades) == 1
+    t = trades.iloc[0]
+    assert t["direction"] == "short"
+    assert t["tp"] == 99.0  # zone_low, no un múltiplo de R
+    assert t["exit_reason"] == "TP"
+
+
+def test_tp_mode_poc_targets_dominant_volume_level():
+    from src.session_zone import _session_poc
+
+    idx = pd.date_range("2026-01-05 19:00", periods=20, freq="5min", tz="America/New_York")
+    rows = [
+        _bar(100, 101, 99, 100.5, 10),
+        _bar(100.5, 100.8, 99.5, 100, 100000),  # domina el volumen de la zona -> ancla el POC
+        _bar(100, 100.2, 99.8, 100, 10),
+        _bar(100, 100.1, 99.9, 100, 10),
+        _bar(100, 100.1, 99.9, 100, 10),
+        _bar(100, 100.1, 99.9, 100, 10),
+        _bar(100, 100.2, 99.8, 100.1, 1000),
+        _bar(100.1, 103, 100, 102.5, 1000),  # rompe el zone_high -> fade a short
+        _bar(102, 102.1, 98.5, 99, 1000),
+    ] + [_bar(99, 99.1, 98.9, 99, 1000)] * 10
+    df = pd.DataFrame(rows, index=idx[: len(rows)])
+    expected_poc = _session_poc(df.iloc[0:6], n_bins=30)
+
+    cfg = SessionZoneConfig(zone_start="19:00", zone_end="19:30", search_hours=8.5,
+                             tp_mode="poc", sl_buffer_pct=0.03, slippage_bps=0.0)
+    trades = generate_trades_zone(df, cfg)
+    assert len(trades) == 1
+    t = trades.iloc[0]
+    assert t["direction"] == "short"
+    assert t["tp"] == expected_poc
+
+
+def test_liquidity_sl_mode_falls_back_to_farther_swing_without_liquidity_on_nearest():
+    """Los swings de referencia para el SL deben ser HISTÓRICOS (anteriores
+    a la zona), no algo que ocurra entre el fin de la zona y el
+    rompimiento -- si un swing ahí superara el zone_high, ESO sería el
+    rompimiento, no un swing histórico de SL."""
+    n = 30
+    idx = pd.date_range("2026-01-05 19:00", periods=n, freq="5min", tz="America/New_York")
+    high = [100.5] * n
+    low = [99.5] * n
+    close = [100.0] * n
+    volume = [1000] * n
+
+    # historia previa a la zona: swing high cercano (bajo volumen) a 105 -- no debe calificar
+    high[3], volume[3] = 105.0, 1000
+    # historia previa a la zona: swing high más lejano (alto volumen) a 110 -- pool de liquidez real
+    high[10], volume[10] = 110.0, 10000
+
+    # zona (velas 14-15 = 20:10-20:15, zone_end=20:20): zone_high=101 (vela 14), zone_low=99 (vela 15)
+    high[14] = 101.0
+    low[15] = 99.0
+
+    # rompe el zone_high en la posición 20 (por encima del zone, muy por debajo de 105/110)
+    high[20], close[20] = 101.5, 101.2
+
+    df = pd.DataFrame({"open": close, "high": high, "low": low, "close": close, "volume": volume}, index=idx)
+
+    cfg = SessionZoneConfig(
+        zone_start="20:10", zone_end="20:20", search_hours=4.0,
+        sl_mode="liquidity", liquidity_filter_enabled=True, liquidity_lookback_bars=3,
+        liquidity_multiplier=1.5, swing_fractal_window=2, swing_lookback_days=5,
+        sl_buffer_pct=0.0, slippage_bps=0.0,
+    )
+    trades = generate_trades_zone(df, cfg)
+    assert len(trades) == 1
+    t = trades.iloc[0]
+    assert t["direction"] == "short"
+    assert t["sl"] == 110.0  # ancla en el swing con liquidez real, no en el de 105
+
+
 def test_run_backtest_zone_builds_equity_curve():
     idx = pd.date_range("2026-01-05 19:00", periods=20, freq="5min", tz="America/New_York")
     rows = [
