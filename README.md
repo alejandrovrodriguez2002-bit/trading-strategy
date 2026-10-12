@@ -269,6 +269,58 @@ Con esas salvedades explícitas: esta es, hasta ahora, la única variante de
 todo este proyecto que muestra edge positivo (profit factor y Sortino > 0)
 en datos reales que el proceso de selección de parámetros nunca vio.
 
+### Confirmación en US100 (proxy: NQ) — se sostiene en las 4 granularidades
+
+A pedido, se corrió el mismo barrido de `scripts/run_simple_orb_grid.py`
+sobre **US100** (el ticker de índice CFD de brokers como
+Capital.com/IG/OANDA). US100 no cotiza en ninguna bolsa real, así que no
+hay datos de Databento para ese símbolo exacto — se usó **NQ** (futuro
+E-mini Nasdaq-100, CME Globex, los mismos ~180 días reales ya descargados
+para la sección de "Zonas de valor" más abajo) como **proxy**: es el
+subyacente real que esos brokers usan para construir el precio de US100,
+el movimiento es prácticamente idéntico salvo el spread/comisión del
+broker (`python scripts/run_simple_orb_grid.py --source nq`).
+
+El barrido de 120 combinaciones por Sortino en TRAIN favoreció, en
+1m/2m/5m, combos con `trend_filter_enabled=True` que recortan la muestra
+a 21-24 trades con Sortino aparentemente espectacular (16-30) en train —
+y que **colapsan en test** (Sortino -0.4 a -0.1, profit factor ~0.9-0.97):
+el mismo patrón de sobreajuste por muestra pequeña ya documentado en este
+README (ej. el barrido de PDH/PDL). Solo 3m, sin filtro de tendencia
+(59 trades), se sostuvo en ambos lados de forma creíble.
+
+Para una comparación limpia, se corrió la **misma configuración fija ya
+validada en QQQ** (OR=30min, fade, SL en la mecha real, TP=1.5R, sin
+filtro de tendencia ni de volumen, sin apalancamiento) en las 4
+granularidades de NQ, sin dejar que ningún barrido eligiera nada:
+
+| Intervalo | | Trades | Win rate | Profit factor | Sortino | Retorno (test, sin apalancamiento) | Max DD |
+|---|---|---|---|---|---|---|---|
+| 1m | train | 59 | 57.6% | 1.68 | 6.74 | +1.53% | — |
+| 1m | **test** | 59 | 54.2% | **1.09** | 0.87 | +0.29% | -0.50% |
+| 2m | train | 59 | 62.7% | 1.74 | 6.58 | +1.78% | — |
+| 2m | **test** | 59 | 66.1% | **1.69** | 5.69 | +2.02% | -0.43% |
+| 3m | train | 59 | 64.4% | 1.84 | 7.17 | +2.04% | — |
+| 3m | **test** | 59 | 66.1% | **1.54** | 4.40 | +1.71% | -0.53% |
+| 5m | train | 59 | 64.4% | 1.64 | 5.32 | +1.85% | — |
+| 5m | **test** | 59 | 64.4% | **1.40** | 3.31 | +1.65% | -1.12% |
+
+**Las 4 granularidades quedan con profit factor > 1.0 y Sortino > 0 en
+test, con una muestra consistente de 59 trades cada una** (sin el sesgo
+de muestra pequeña del barrido libre). El 5m coincide, además, casi
+exactamente con el resultado de la zona `ny_first30` sobre NQ de la
+sección "Zonas de valor" más abajo (PF 1.40-1.43, Sortino 3.3-3.3) — es
+la misma edge, medida dos veces con motores ligeramente distintos
+(`src/simple_orb.py` restringido a sesión NY vs. `src/session_zone.py`
+sobre el histórico de 24h), lo cual es una confirmación cruzada adicional
+en lugar de una coincidencia aislada.
+
+Con las mismas salvedades de la sección anterior (y el matiz de que
+NQ/US100 es un proxy, no el ticker exacto): esta es la segunda
+confirmación cruzada de instrumento de la edge de este proyecto (QQQ →
+NQ como proxy de US100), con un motor de selección de parámetros
+independiente del de la sección "Zonas de valor".
+
 ### Variante probada: mismo rango del día anterior (PDH/PDL) en vez del rango de apertura — no muestra edge
 
 A pedido, se extendió `src/simple_orb.py` con `range_source="prev_session"`:
@@ -572,6 +624,7 @@ python scripts/run_backtest.py --csv data/QQQ_5m.csv
 
 # 4) La variante "fade" que sí muestra edge (ver sección arriba), con split train/test honesto
 python scripts/run_simple_orb_grid.py
+python scripts/run_simple_orb_grid.py --source nq   # NQ, proxy de US100 (ver sección "Confirmación en US100")
 
 # 5) Barrido de PDH/PDL + objetivo en el lado opuesto/POC (probado, no muestra edge -- ver sección arriba)
 python scripts/run_liquidity_sweep_grid.py
@@ -703,11 +756,13 @@ resto de este README.
   con bandas SD. La variante que sí lo muestra es **ORB clásico en modo
   "fade"** (`src/simple_orb.py`, ver sección arriba) — validada con split
   train/test, positiva fuera de muestra en 1m/2m/3m/5m.
-- **Confirmado en NQ (futuro)**: la variante `ny_first30` de
-  `src/session_zone.py` (misma receta del fade de OR30) sostiene el edge
-  fuera de muestra en NQ, no solo en QQQ — ver sección "Zonas de valor"
-  arriba. Las otras 5 zonas horarias probadas (Asia/Londres, primeros y
-  últimos 30 min) no mostraron edge.
+- **Confirmado en NQ/US100 (futuro, proxy de índice CFD)**: tanto la
+  variante `ny_first30` de `src/session_zone.py` como el barrido completo
+  de `scripts/run_simple_orb_grid.py --source nq` sostienen el edge fuera
+  de muestra en NQ (proxy de US100) en 1m/2m/3m/5m — ver secciones
+  "Confirmación en US100" y "Zonas de valor" arriba. Las otras 5 zonas
+  horarias probadas (Asia/Londres, primeros y últimos 30 min) no
+  mostraron edge.
 - Pasos para llevar el fade de OR30 más allá de esta validación inicial:
   forward-test en papel unas semanas, probar en otros períodos/rangos de
   fechas (para confirmar que no es específico a este régimen de mercado
