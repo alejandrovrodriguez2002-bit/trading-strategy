@@ -635,8 +635,11 @@ python scripts/run_session_zone_grid.py
 # 7) Reacción al rango de Asia durante Londres (señal real pero débil, no robusta -- ver sección arriba)
 python scripts/run_asia_london_reaction_grid.py
 
-# 8) Filtro de régimen (Market Regime v7) por nivel -- empeora la variante que sí funciona, ver sección arriba
+# 8) Filtro de régimen (Market Regime v7) por nivel -- "solo verde"/"no rojo" empeoran, "solo rojo" mejora OR30/NQ
 python scripts/run_regime_gated_levels.py
+
+# 9) Ventana de persistencia del régimen + desglose rojo/neutral/verde (de donde salió el hallazgo de "solo rojo")
+python scripts/run_regime_window_breakdown.py
 ```
 
 Esto genera en `results/`: `trades.csv` (log completo de operaciones),
@@ -866,7 +869,7 @@ con test unitario) porque es una herramienta reutilizable y la pregunta
 era válida, pero la respuesta real es que no ayuda aquí. No se
 recomienda operar esta variante en vivo sin más validación.
 
-## Filtro de régimen de mercado ("Market Regime v7") — empeora la estrategia que sí funciona
+## Filtro de régimen de mercado ("Market Regime v7") — el hallazgo real está en "rojo", no en "verde"
 
 A pedido, se portó a Python (`src/market_regime.py`, ver docstring para
 el detalle de cada métrica) el indicador Pine Script "Market Regime v7"
@@ -967,19 +970,83 @@ positivo claro. No es suficiente para recomendar el filtro, pero es la
 única pista de que el régimen SÍ captura algo útil para ese nivel en
 particular.
 
-Conclusión final: ni el umbral estricto ("solo verde") ni el permisivo
-("no rojo") mejoran de forma confiable ninguno de los tres niveles, y
-ambos perjudican a la única estrategia con edge ya confirmado (OR30) —
-el umbral permisivo lo hace de forma menos catastrófica, pero el
-resultado es el mismo: el filtro no aporta valor tal como está
-implementado (régimen evaluado en la vela exacta de rompimiento). Otra
-variante a probar si se quiere seguir esta línea (no incluida aquí):
-evaluar el régimen en una ventana de N velas antes del rompimiento en
-vez de en la vela exacta.
+Ni "solo verde" ni "no rojo" mejoran de forma confiable ninguno de los
+tres niveles, y ambos perjudican a OR30 — pero esto llevó a la pregunta
+correcta: ¿y si el patrón está del otro lado?
 
-Reportes y datos completos: `results/regime_gated_levels/` (`.md`,
-`.json`, y las 4 imágenes, ahora con los dos umbrales). Reproducible con
-`python scripts/run_regime_gated_levels.py`.
+### Desglose por régimen (sin filtrar): el patrón real es "rojo", no "verde"
+
+A pedido, en vez de solo filtrar (pasa/no pasa), se desglosaron los
+trades YA EXISTENTES (sin filtrar, histórico completo) según el régimen
+exacto que tenían al momento del rompimiento — para ver qué patrón real
+hay entre VOLÁTIL/rojo, NEUTRAL y ESTRUCTURADO/verde
+(`scripts/run_regime_window_breakdown.py`):
+
+![Desglose por régimen US100](results/regime_window_breakdown/regime_breakdown_US100_proxy_NQ.png)
+
+**En la apertura de NY (OR30) sobre US100/NQ, el patrón es nítido y al
+revés de lo que se venía probando**: win rate 69.8% en régimen VOLÁTIL
+(rojo, n=63) → 61.5% en NEUTRAL (n=52) → solo 42.9% en ESTRUCTURADO
+(verde, n=7). Tiene sentido con la lógica de la estrategia: es un FADE
+(apuesta a reversión), y una reversión es más probable precisamente
+cuando el mercado ya está volátil/en rango, no cuando está en tendencia
+limpia ("estructurado"). En QQQ el patrón es más parejo entre los tres
+estados para OR30, pero en PDH/PDL y 4 horas también aparece: el rojo
+es el único bucket con profit factor > 1 en ambos niveles (1.05 y 1.39
+respectivamente), mientras NEUTRAL (la mayoría de la muestra) es
+claramente negativo (0.46 y 0.64).
+
+### Probando "solo rojo": mejora real y validada en OR30/US100
+
+Se agregó `regime_mode="red_only"` (exige -1 exacto) y se corrió con el
+mismo split honesto train/test:
+
+| Instrumento — nivel | Sin filtro (test) | Solo rojo (test) | Solo rojo (train) |
+|---|---|---|---|
+| **US100 (NQ) — apertura (OR30)** | PF 1.43, Sortino 3.62 (62 trades) | **PF 2.08, Sortino 5.74** (31 trades) | PF 2.29, Sortino 7.08 (32 trades) |
+| QQQ — apertura (OR30) | PF 1.20 | PF 1.65 (16 trades) | PF 0.94 (train, inconsistente) |
+| PDH/PDL y 4 horas (ambos instrumentos) | — | sin mejora consistente train+test | train espectacular, test se cae (sobreajuste) |
+
+**US100/NQ-OR30 es la única mejora de todo este proyecto validada con
+train Y test consistentes entre sí** (2.29 vs 2.08 — muy cercanos) sobre
+una muestra decente (31-32 trades cada lado, 50% del original). Se
+revisó que no sea un trade/mes suelto: positivo en los 7 meses del
+historial, 69.8% de aciertos sobre 63 trades totales, peor trade -$40,
+mejor trade +$68, drawdown máximo -0.53%. En QQQ el mismo filtro no
+replica con consistencia (train y test no concuerdan) — **la mejora de
+"solo rojo" parece específica de US100/NQ, no generalizable a QQQ**.
+
+**Salvedad honesta sobre el retorno en $**: la curva de equity de
+"solo rojo" no supera a la de "sin filtro" en dólares totales — quedan
+muy cerca (~10,350 vs ~10,400 sobre el historial completo), porque "solo
+rojo" tiene la MITAD de los trades. La mejora real es en **calidad por
+trade** (profit factor, win rate, Sortino — menos trades, pero cada uno
+más confiable), no en más ganancia total con el mismo tamaño de
+posición. Para capturarla como más retorno haría falta aumentar el
+tamaño de posición en esos trades (ya que cada uno es más confiable),
+algo no probado aquí.
+
+### Ventana de persistencia (N velas antes del rompimiento)
+
+También se probó, con `regime_window_bars`, exigir que el filtro se
+cumpla en las N velas ANTES del rompimiento (no solo en la vela exacta)
+— barrido de N ∈ {1,3,5,10,20,50} × los 3 umbrales × 3 niveles × 2
+instrumentos (`results/regime_window_breakdown/window_sweep_sortino.png`).
+**Ninguna ventana > 1 mejora de forma confiable el hallazgo de "solo
+rojo" en OR30/US100** (en N=20 se ve bien en ambos lados pero sobre solo
+16 trades por lado — muestra chica). En varios otros combos (ej. "no
+rojo" + 4 horas en US100, N=50) el test mejora monótonamente con N
+mientras el train se queda negativo todo el camino — exactamente el
+patrón de "se ve bien solo si lo elijo mirando el test", así que se
+descarta explícitamente: con 36 combinaciones probadas por nivel, es
+esperable que alguna se vea bien por puro azar. La ventana de 1 vela
+(la vela exacta, el comportamiento original) sigue siendo la que mejor
+se sostiene.
+
+Reportes y datos completos: `results/regime_gated_levels/` y
+`results/regime_window_breakdown/` (`.md`, `.json`, gráficas).
+Reproducible con `python scripts/run_regime_gated_levels.py` y
+`python scripts/run_regime_window_breakdown.py`.
 
 ## Próximos pasos sugeridos
 
@@ -1001,13 +1068,20 @@ Reportes y datos completos: `results/regime_gated_levels/` (`.md`,
   Asia a su núcleo de mayor (o menor) volumen se probó y empeora el
   resultado, no es el camino. No se recomienda operar sin más
   validación.
+- **Filtro de régimen ("Market Regime v7", portado): exigir "solo rojo"
+  (VOLÁTIL) mejora OR30 en US100/NQ** (PF 1.43→2.08 en test, 31 trades,
+  consistente con train) — ver sección "Filtro de régimen de mercado"
+  arriba. No replica con la misma consistencia en QQQ. La mejora es en
+  calidad por trade (menos trades, más confiables), no en más retorno
+  total con el mismo tamaño de posición — probar con sizing ajustado
+  sería el siguiente paso si se quiere capturarla como más ganancia.
 - Pasos para llevar el fade de OR30 más allá de esta validación inicial:
   forward-test en papel unas semanas, probar en otros períodos/rangos de
   fechas (para confirmar que no es específico a este régimen de mercado
   2026), y sincronizar la lógica con `pine/ny_orb_cvd_absorption.pine` si
   se quiere operar/monitorear desde TradingView (el Pine actual todavía
   implementa solo la estrategia original de continuación + CVD, no el
-  fade).
+  fade, ni el filtro de régimen).
 - Si tu CVD "de la imagen" usa una lógica más específica (p.ej. umbral
   mínimo de divergencia, número exacto de velas, o un CVD calculado con
   datos de tick reales de tu plataforma), lo ajustamos en `src/cvd.py` y

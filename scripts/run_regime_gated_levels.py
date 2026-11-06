@@ -9,12 +9,20 @@ a TRES niveles de referencia distintos:
   - "día anterior" -> PDH/PDL (`range_source="prev_session"`)
   - "4 horas" -> high/low de la última vela de 4h cerrada (`range_source="4h_candle"`)
 
-Dos umbrales de filtro (`GATE_MODES`), para no quedarse solo con la
-versión más estricta:
+Tres umbrales de filtro (`GATE_MODES`):
   - "green_only": exige régimen exacto +1 (ESTRUCTURADO/verde) en la
     vela de rompimiento -- la primera versión probada.
   - "not_red": permite +1 (verde) O 0 (neutral); solo bloquea -1
     (VOLÁTIL/rojo) -- umbral menos exigente, pedido como variante.
+  - "red_only": exige -1 (VOLÁTIL/rojo) exacto -- lo opuesto a
+    "green_only". Surgió de desglosar los trades sin filtrar por el
+    régimen en la vela de rompimiento (ver
+    `scripts/run_regime_window_breakdown.py`): en esta estrategia de
+    FADE, el régimen "rojo" suele ser donde mejor funciona, no el verde.
+    Confirmado con split train/test: en apertura (OR30) sobre US100/NQ,
+    el profit factor sube de 1.43 (sin filtro) a 2.08 en test (31
+    trades, consistente con 2.29 en train) -- la única mejora real
+    encontrada en toda esta exploración de régimen.
 
 Sobre datos reales de QQQ y NQ (proxy de US100, ver README.md), en train
 y test (split honesto por fecha, mitad/mitad).
@@ -61,9 +69,9 @@ BASE_RECIPE = dict(
     sl_buffer_pct=0.03, trend_filter_enabled=False, max_leverage=1.0,
 )
 
-GATE_MODES = ["green_only", "not_red"]
-GATE_LABELS = {"green_only": "Solo verde", "not_red": "No rojo (verde+neutral)"}
-GATE_COLORS = {"green_only": "#2980b9", "not_red": "#8e44ad"}
+GATE_MODES = ["green_only", "not_red", "red_only"]
+GATE_LABELS = {"green_only": "Solo verde", "not_red": "No rojo (verde+neutral)", "red_only": "Solo rojo"}
+GATE_COLORS = {"green_only": "#2980b9", "not_red": "#8e44ad", "red_only": "#c0392b"}
 
 
 def _split_train_test(df):

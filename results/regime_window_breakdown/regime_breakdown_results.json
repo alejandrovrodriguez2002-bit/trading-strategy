@@ -1,0 +1,182 @@
+[
+  {
+    "instrument": "QQQ",
+    "level": "apertura (OR30)",
+    "regime_bucket": -1,
+    "regime_label": "VOL\u00c1TIL (rojo)",
+    "num_trades": 31,
+    "win_rate_pct": 67.7,
+    "avg_r_multiple": 0.602,
+    "profit_factor": 1.21
+  },
+  {
+    "instrument": "QQQ",
+    "level": "apertura (OR30)",
+    "regime_bucket": 0,
+    "regime_label": "NEUTRAL",
+    "num_trades": 71,
+    "win_rate_pct": 59.2,
+    "avg_r_multiple": 0.37,
+    "profit_factor": 1.36
+  },
+  {
+    "instrument": "QQQ",
+    "level": "apertura (OR30)",
+    "regime_bucket": 1,
+    "regime_label": "ESTRUCTURADO (verde)",
+    "num_trades": 19,
+    "win_rate_pct": 68.4,
+    "avg_r_multiple": 0.6,
+    "profit_factor": 1.66
+  },
+  {
+    "instrument": "QQQ",
+    "level": "d\u00eda anterior (PDH/PDL)",
+    "regime_bucket": -1,
+    "regime_label": "VOL\u00c1TIL (rojo)",
+    "num_trades": 27,
+    "win_rate_pct": 55.6,
+    "avg_r_multiple": 0.304,
+    "profit_factor": 1.05
+  },
+  {
+    "instrument": "QQQ",
+    "level": "d\u00eda anterior (PDH/PDL)",
+    "regime_bucket": 0,
+    "regime_label": "NEUTRAL",
+    "num_trades": 65,
+    "win_rate_pct": 44.6,
+    "avg_r_multiple": 0.044,
+    "profit_factor": 0.46
+  },
+  {
+    "instrument": "QQQ",
+    "level": "d\u00eda anterior (PDH/PDL)",
+    "regime_bucket": 1,
+    "regime_label": "ESTRUCTURADO (verde)",
+    "num_trades": 19,
+    "win_rate_pct": 57.9,
+    "avg_r_multiple": 0.35,
+    "profit_factor": 0.7
+  },
+  {
+    "instrument": "QQQ",
+    "level": "4 horas",
+    "regime_bucket": -1,
+    "regime_label": "VOL\u00c1TIL (rojo)",
+    "num_trades": 42,
+    "win_rate_pct": 59.5,
+    "avg_r_multiple": 0.397,
+    "profit_factor": 1.39
+  },
+  {
+    "instrument": "QQQ",
+    "level": "4 horas",
+    "regime_bucket": 0,
+    "regime_label": "NEUTRAL",
+    "num_trades": 123,
+    "win_rate_pct": 48.8,
+    "avg_r_multiple": 0.14,
+    "profit_factor": 0.64
+  },
+  {
+    "instrument": "QQQ",
+    "level": "4 horas",
+    "regime_bucket": 1,
+    "regime_label": "ESTRUCTURADO (verde)",
+    "num_trades": 38,
+    "win_rate_pct": 55.3,
+    "avg_r_multiple": 0.258,
+    "profit_factor": 0.71
+  },
+  {
+    "instrument": "US100 (proxy NQ)",
+    "level": "apertura (OR30)",
+    "regime_bucket": -1,
+    "regime_label": "VOL\u00c1TIL (rojo)",
+    "num_trades": 63,
+    "win_rate_pct": 69.8,
+    "avg_r_multiple": 0.631,
+    "profit_factor": 2.17
+  },
+  {
+    "instrument": "US100 (proxy NQ)",
+    "level": "apertura (OR30)",
+    "regime_bucket": 0,
+    "regime_label": "NEUTRAL",
+    "num_trades": 52,
+    "win_rate_pct": 61.5,
+    "avg_r_multiple": 0.422,
+    "profit_factor": 1.18
+  },
+  {
+    "instrument": "US100 (proxy NQ)",
+    "level": "apertura (OR30)",
+    "regime_bucket": 1,
+    "regime_label": "ESTRUCTURADO (verde)",
+    "num_trades": 7,
+    "win_rate_pct": 42.9,
+    "avg_r_multiple": -0.022,
+    "profit_factor": 0.54
+  },
+  {
+    "instrument": "US100 (proxy NQ)",
+    "level": "d\u00eda anterior (PDH/PDL)",
+    "regime_bucket": -1,
+    "regime_label": "VOL\u00c1TIL (rojo)",
+    "num_trades": 49,
+    "win_rate_pct": 51.0,
+    "avg_r_multiple": 0.196,
+    "profit_factor": 0.69
+  },
+  {
+    "instrument": "US100 (proxy NQ)",
+    "level": "d\u00eda anterior (PDH/PDL)",
+    "regime_bucket": 0,
+    "regime_label": "NEUTRAL",
+    "num_trades": 54,
+    "win_rate_pct": 42.6,
+    "avg_r_multiple": -0.012,
+    "profit_factor": 0.62
+  },
+  {
+    "instrument": "US100 (proxy NQ)",
+    "level": "d\u00eda anterior (PDH/PDL)",
+    "regime_bucket": 1,
+    "regime_label": "ESTRUCTURADO (verde)",
+    "num_trades": 12,
+    "win_rate_pct": 41.7,
+    "avg_r_multiple": -0.032,
+    "profit_factor": 0.4
+  },
+  {
+    "instrument": "US100 (proxy NQ)",
+    "level": "4 horas",
+    "regime_bucket": -1,
+    "regime_label": "VOL\u00c1TIL (rojo)",
+    "num_trades": 143,
+    "win_rate_pct": 46.9,
+    "avg_r_multiple": 0.045,
+    "profit_factor": 0.75
+  },
+  {
+    "instrument": "US100 (proxy NQ)",
+    "level": "4 horas",
+    "regime_bucket": 0,
+    "regime_label": "NEUTRAL",
+    "num_trades": 393,
+    "win_rate_pct": 53.7,
+    "avg_r_multiple": 0.191,
+    "profit_factor": 0.99
+  },
+  {
+    "instrument": "US100 (proxy NQ)",
+    "level": "4 horas",
+    "regime_bucket": 1,
+    "regime_label": "ESTRUCTURADO (verde)",
+    "num_trades": 113,
+    "win_rate_pct": 47.8,
+    "avg_r_multiple": 0.075,
+    "profit_factor": 0.77
+  }
+]

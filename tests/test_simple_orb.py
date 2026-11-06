@@ -312,6 +312,52 @@ def test_regime_mode_not_red_allows_neutral_but_blocks_red():
     assert len(trades_not_red_blocked) == 0
 
 
+def test_regime_mode_red_only_requires_exact_red_and_blocks_green_or_neutral():
+    from src.simple_orb import generate_trades_4h_candle
+
+    idx = pd.date_range("2026-01-05 00:00", periods=12, freq="1h", tz="America/New_York")
+    df = pd.DataFrame(_4h_candle_test_rows(), index=idx)
+    cfg = SimpleORBConfig(range_source="4h_candle", direction_mode="fade", sl_buffer_pct=0.03, slippage_bps=0.0)
+
+    regime_red = pd.Series(-1, index=idx)
+    trades_red = generate_trades_4h_candle(df, cfg, regime=regime_red, search_hours=4.0, regime_mode="red_only")
+    assert len(trades_red) == 1
+
+    regime_neutral = pd.Series(0, index=idx)
+    trades_neutral = generate_trades_4h_candle(
+        df, cfg, regime=regime_neutral, search_hours=4.0, regime_mode="red_only"
+    )
+    assert len(trades_neutral) == 0
+
+    regime_green = pd.Series(1, index=idx)
+    trades_green = generate_trades_4h_candle(df, cfg, regime=regime_green, search_hours=4.0, regime_mode="red_only")
+    assert len(trades_green) == 0
+
+
+def test_regime_window_bars_requires_persistence_before_the_breakout():
+    """regime_window_bars > 1 debe exigir que el filtro se cumpla en TODA
+    la ventana de velas antes del rompimiento, no solo en la vela exacta
+    -- un régimen que recién se puso verde justo en la vela de
+    rompimiento debe pasar con window_bars=1 pero fallar con una ventana
+    más larga que alcance las velas anteriores (todavía rojas)."""
+    from src.simple_orb import generate_trades_4h_candle
+
+    idx = pd.date_range("2026-01-05 00:00", periods=12, freq="1h", tz="America/New_York")
+    df = pd.DataFrame(_4h_candle_test_rows(), index=idx)
+    cfg = SimpleORBConfig(range_source="4h_candle", direction_mode="fade", sl_buffer_pct=0.03, slippage_bps=0.0)
+
+    # la vela de rompimiento es la posición 4 -- el régimen se pone verde
+    # EXACTAMENTE ahí, las 4 velas anteriores son rojas
+    regime_vals = [-1, -1, -1, -1] + [1] * 8
+    regime = pd.Series(regime_vals, index=idx)
+
+    trades_w1 = generate_trades_4h_candle(df, cfg, regime=regime, search_hours=4.0, regime_window_bars=1)
+    assert len(trades_w1) == 1  # solo mira la vela de rompimiento (verde) -> pasa
+
+    trades_w4 = generate_trades_4h_candle(df, cfg, regime=regime, search_hours=4.0, regime_window_bars=4)
+    assert len(trades_w4) == 0  # exige verde en las 4 velas previas también -> no pasa, siguen rojas
+
+
 def test_run_backtest_simple_builds_equity_curve():
     rows = [
         _bar(100, 101, 99, 100.5, 1000),
