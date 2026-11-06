@@ -933,18 +933,52 @@ instrumento:
   ayuda**: profit factor prácticamente igual o levemente peor con el
   filtro (train 0.82→0.79, test 0.98→0.75) en ambos lados.
 
-Conclusión: como se implementó (régimen exacto en la vela de
-rompimiento, sin ventana de tolerancia), el filtro de "Market Regime v7"
-no aporta una mejora real en ningún nivel probado, y sobre la única
-estrategia con edge confirmado (OR30) la perjudica al recortar la
-muestra a un puñado de trades no representativos. No se recomienda
-usarlo como está. Posibles variantes a probar si se quiere seguir esta
-línea (no incluidas aquí): exigir régimen "no rojo" en vez de "verde"
-estricto (un umbral menos exigente), o evaluarlo en una ventana de N
-velas antes del rompimiento en vez de en la vela exacta.
+### Umbral más permisivo: "no rojo" (verde + neutral) — tampoco ayuda
+
+Se probó la variante pedida: en vez de exigir régimen exacto +1
+(ESTRUCTURADO/verde), permitir +1 O 0 (NEUTRAL) y solo bloquear -1
+(VOLÁTIL/rojo) — `regime_mode="not_red"` en `src/simple_orb.py`. Al ser
+menos exigente, retiene **46-80% de la muestra** (contra 5-20% del
+umbral estricto) — ya no hay excusa de "muestra muy chica" para
+descartar el resultado.
+
+**Tampoco mejora nada, y sigue perjudicando a OR30 en US100 (NQ)**:
+
+| Nivel (test) | US100 sin filtro | US100 solo verde | US100 no rojo |
+|---|---|---|---|
+| Apertura (OR30) | PF 1.43, Sortino 3.62 | PF 1.55 (4 trades) | **PF 1.00, Sortino -0.01** (31 trades) |
+| PDH/PDL | PF 0.83 | PF 0.45 (6 trades) | PF 0.79 (34 trades) |
+| 4 horas | PF 0.98 | PF 0.75 (46 trades) | PF 1.01 (249 trades) |
+
+Con una muestra grande y confiable (31 trades, 50% del original), "no
+rojo" deja la apertura de NY justo en el punto de equilibrio (PF 1.00)
+—borra por completo el edge que sin filtro da PF 1.43. La curva de
+equity de NQ lo muestra igual de claro que con el umbral estricto: sin
+filtro sube a ~10,400; con "no rojo" se queda plana en ~10,050-10,100
+durante todo el historial. En QQQ el patrón es el mismo: "no rojo" no
+mejora ningún nivel de forma consistente (PDH/PDL y 4 horas siguen
+negativos; OR30 baja de PF 1.20 a 1.06).
+
+El único caso donde CUALQUIER filtro de régimen (estricto o permisivo)
+muestra algo parecido a una mejora es "4 horas" en US100 — ahí ambos
+umbrales evitan buena parte del drawdown que sufre la versión sin
+filtro (ver la curva de equity), aunque sin llegar a generar un edge
+positivo claro. No es suficiente para recomendar el filtro, pero es la
+única pista de que el régimen SÍ captura algo útil para ese nivel en
+particular.
+
+Conclusión final: ni el umbral estricto ("solo verde") ni el permisivo
+("no rojo") mejoran de forma confiable ninguno de los tres niveles, y
+ambos perjudican a la única estrategia con edge ya confirmado (OR30) —
+el umbral permisivo lo hace de forma menos catastrófica, pero el
+resultado es el mismo: el filtro no aporta valor tal como está
+implementado (régimen evaluado en la vela exacta de rompimiento). Otra
+variante a probar si se quiere seguir esta línea (no incluida aquí):
+evaluar el régimen en una ventana de N velas antes del rompimiento en
+vez de en la vela exacta.
 
 Reportes y datos completos: `results/regime_gated_levels/` (`.md`,
-`.json`, y las 4 imágenes). Reproducible con
+`.json`, y las 4 imágenes, ahora con los dos umbrales). Reproducible con
 `python scripts/run_regime_gated_levels.py`.
 
 ## Próximos pasos sugeridos

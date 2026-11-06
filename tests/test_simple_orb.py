@@ -287,6 +287,31 @@ def test_4h_candle_respects_regime_filter():
     assert len(trades_green) == 1
 
 
+def test_regime_mode_not_red_allows_neutral_but_blocks_red():
+    from src.simple_orb import generate_trades_4h_candle
+
+    idx = pd.date_range("2026-01-05 00:00", periods=12, freq="1h", tz="America/New_York")
+    df = pd.DataFrame(_4h_candle_test_rows(), index=idx)
+    cfg = SimpleORBConfig(range_source="4h_candle", direction_mode="fade", sl_buffer_pct=0.03, slippage_bps=0.0)
+
+    regime_neutral = pd.Series(0, index=idx)  # NEUTRAL: bloquea en "green_only", pasa en "not_red"
+    trades_green_only = generate_trades_4h_candle(
+        df, cfg, regime=regime_neutral, search_hours=4.0, regime_mode="green_only"
+    )
+    assert len(trades_green_only) == 0
+
+    trades_not_red = generate_trades_4h_candle(
+        df, cfg, regime=regime_neutral, search_hours=4.0, regime_mode="not_red"
+    )
+    assert len(trades_not_red) == 1
+
+    regime_red = pd.Series(-1, index=idx)  # VOLÁTIL: "not_red" también debe bloquearlo
+    trades_not_red_blocked = generate_trades_4h_candle(
+        df, cfg, regime=regime_red, search_hours=4.0, regime_mode="not_red"
+    )
+    assert len(trades_not_red_blocked) == 0
+
+
 def test_run_backtest_simple_builds_equity_curve():
     rows = [
         _bar(100, 101, 99, 100.5, 1000),

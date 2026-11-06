@@ -282,15 +282,30 @@ def _prev_session_ref(df: pd.DataFrame, day_groups: list[tuple], poc_bins: int =
     return ref
 
 
-def _regime_allows(regime: Optional[pd.Series], breakout_pos: int) -> bool:
+def _regime_allows(regime: Optional[pd.Series], breakout_pos: int, regime_mode: str = "green_only") -> bool:
     """True si no hay filtro de régimen, o si el régimen en la vela de
-    rompimiento es +1 (ESTRUCTURADO/verde). `regime` debe estar alineado
+    rompimiento pasa el filtro. `regime` debe estar alineado
     POSICIONALMENTE con el `df` usado para encontrar `breakout_pos` (ver
-    `src/market_regime.py: compute_regime`)."""
+    `src/market_regime.py: compute_regime`).
+
+    `regime_mode`:
+      - "green_only" (default): exige +1 (ESTRUCTURADO/verde) exacto.
+      - "not_red": permite +1 (verde) o 0 (neutral); solo bloquea -1
+        (VOLÁTIL/rojo) -- umbral menos exigente, se queda con un
+        universo de trades más grande.
+    Un régimen NaN (típicamente warmup) bloquea en ambos modos -- sin
+    información no se considera "pase" por defecto."""
     if regime is None:
         return True
     val = regime.iloc[breakout_pos]
-    return not pd.isna(val) and int(val) == 1
+    if pd.isna(val):
+        return False
+    val = int(val)
+    if regime_mode == "green_only":
+        return val == 1
+    if regime_mode == "not_red":
+        return val != -1
+    raise ValueError(f"regime_mode desconocido: {regime_mode!r}")
 
 
 def _try_build_trade(
@@ -305,6 +320,7 @@ def _try_build_trade(
     trend_by_date: Optional[dict] = None,
     poc_ref: Optional[float] = None,
     regime: Optional[pd.Series] = None,
+    regime_mode: str = "green_only",
 ):
     """Intenta construir UN trade a partir del primer rompimiento de
     [or_low, or_high] entre `search_start` y `search_end`. Devuelve
@@ -329,8 +345,8 @@ def _try_build_trade(
         if (direction == "long" and trend != "up") or (direction == "short" and trend != "down"):
             return None, None  # el sesgo de tendencia del día anterior no coincide
 
-    if not _regime_allows(regime, breakout_pos):
-        return None, None  # el régimen no estaba ESTRUCTURADO en la vela de rompimiento
+    if not _regime_allows(regime, breakout_pos, regime_mode):
+        return None, None  # el régimen no pasó el filtro en la vela de rompimiento
 
     entry_pos = breakout_pos
     entry_price = _apply_slippage(raw_fill_price, direction, "entry", cfg.slippage_bps)
@@ -391,9 +407,11 @@ def _try_build_trade(
     return trade, exit_pos
 
 
-def generate_trades_simple(df: pd.DataFrame, cfg: SimpleORBConfig, regime: Optional[pd.Series] = None) -> pd.DataFrame:
+def generate_trades_simple(
+    df: pd.DataFrame, cfg: SimpleORBConfig, regime: Optional[pd.Series] = None, regime_mode: str = "green_only"
+) -> pd.DataFrame:
     """df debe incluir columnas open/high/low/close/volume, indexado en la
-    tz de la sesión (no requiere CVD). `regime`: ver `_regime_allows`."""
+    tz de la sesión (no requiere CVD). `regime`/`regime_mode`: ver `_regime_allows`."""
     trades: list[Trade] = []
     equity = cfg.starting_equity
 
@@ -431,7 +449,8 @@ def generate_trades_simple(df: pd.DataFrame, cfg: SimpleORBConfig, regime: Optio
         search_pos = search_start
         while trades_today < cfg.max_trades_per_day and search_pos <= end_pos:
             trade, exit_pos = _try_build_trade(
-                df, date, or_high, or_low, search_pos, end_pos, cfg, equity, trend_by_date, poc_ref, regime
+                df, date, or_high, or_low, search_pos, end_pos, cfg, equity,
+                trend_by_date, poc_ref, regime, regime_mode,
             )
             if trade is None:
                 break
@@ -466,7 +485,8 @@ def _iter_4h_candle_occurrences(df: pd.DataFrame, search_hours: float = 4.0):
 
 
 def generate_trades_4h_candle(
-    df: pd.DataFrame, cfg: SimpleORBConfig, regime: Optional[pd.Series] = None, search_hours: float = 4.0
+    df: pd.DataFrame, cfg: SimpleORBConfig, regime: Optional[pd.Series] = None, search_hours: float = 4.0,
+    regime_mode: str = "green_only",
 ) -> pd.DataFrame:
     """Variante de `generate_trades_simple` con `range_source="4h_candle"`:
     la cadencia es cada 4h (no una vez al día), así que no encaja en el
@@ -493,7 +513,7 @@ def generate_trades_4h_candle(
             # equity diaria; si quedara el timestamp completo nunca calzaría con esas fechas y la
             # curva quedaría plana (Sortino/Sharpe/drawdown en 0 -- bug real, visto en los datos).
             df, ref_time.date(), or_high, or_low, mark_end_pos, search_end_pos, cfg, equity,
-            trend_by_date=None, poc_ref=poc_ref, regime=regime,
+            trend_by_date=None, poc_ref=poc_ref, regime=regime, regime_mode=regime_mode,
         )
         if trade is None:
             continue
@@ -504,7 +524,7 @@ def generate_trades_4h_candle(
 
 
 def run_backtest_simple(
-    df: pd.DataFrame, cfg: SimpleORBConfig, regime: Optional[pd.Series] = None
+    df: pd.DataFrame, cfg: SimpleORBConfig, regime: Optional[pd.Series] = None, regime_mode: str = "green_only"
 ) -> tuple[pd.DataFrame, pd.Series]:
     """Igual que `src.backtest.run_backtest` pero para la variante sin CVD.
 
@@ -512,7 +532,9 @@ def run_backtest_simple(
     indexada por los MISMOS timestamps que `df` tenía al calcularse (antes
     de cualquier restricción de sesión); aquí se realinea con `.reindex`
     a los timestamps que sobrevivan la restricción, así que no hace falta
-    pasarla ya recortada.
+    pasarla ya recortada. `regime_mode`: "green_only" (default, exige +1
+    exacto) | "not_red" (permite +1 o 0, solo bloquea -1) -- ver
+    `_regime_allows`.
 
     `cfg.range_source == "4h_candle"` necesita datos de 24h (NQ) -- con
     `session_only=True` (el default) la restricción a horario NY cortaría
@@ -526,9 +548,9 @@ def run_backtest_simple(
         regime = regime.reindex(df.index)
 
     if cfg.range_source == "4h_candle":
-        trades = generate_trades_4h_candle(df, cfg, regime=regime)
+        trades = generate_trades_4h_candle(df, cfg, regime=regime, regime_mode=regime_mode)
     else:
-        trades = generate_trades_simple(df, cfg, regime=regime)
+        trades = generate_trades_simple(df, cfg, regime=regime, regime_mode=regime_mode)
 
     all_dates = pd.Index(sorted(set(df.index.date)))
     equity = cfg.starting_equity

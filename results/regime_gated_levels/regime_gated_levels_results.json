@@ -23,25 +23,51 @@
       "short_trades": 26
     },
     "gated": {
-      "num_trades": 8,
-      "starting_equity": 10000.0,
-      "ending_equity": 10063.02,
-      "total_return_pct": 0.63,
-      "cagr_pct": 2.61,
-      "win_rate_pct": 75.0,
-      "profit_factor": 2.75,
-      "avg_win": 16.52,
-      "avg_loss": -18.05,
-      "expectancy_R": 0.785,
-      "avg_r_multiple": 0.785,
-      "max_drawdown_pct": -0.21,
-      "sharpe_ratio": 2.465,
-      "sortino_ratio": 4.912,
-      "avg_trade_duration_min": 3.1,
-      "long_trades": 5,
-      "short_trades": 3
-    },
-    "kept_pct": 13.3
+      "green_only": {
+        "metrics": {
+          "num_trades": 8,
+          "starting_equity": 10000.0,
+          "ending_equity": 10063.02,
+          "total_return_pct": 0.63,
+          "cagr_pct": 2.61,
+          "win_rate_pct": 75.0,
+          "profit_factor": 2.75,
+          "avg_win": 16.52,
+          "avg_loss": -18.05,
+          "expectancy_R": 0.785,
+          "avg_r_multiple": 0.785,
+          "max_drawdown_pct": -0.21,
+          "sharpe_ratio": 2.465,
+          "sortino_ratio": 4.912,
+          "avg_trade_duration_min": 3.1,
+          "long_trades": 5,
+          "short_trades": 3
+        },
+        "kept_pct": 13.3
+      },
+      "not_red": {
+        "metrics": {
+          "num_trades": 45,
+          "starting_equity": 10000.0,
+          "ending_equity": 10216.34,
+          "total_return_pct": 2.16,
+          "cagr_pct": 9.18,
+          "win_rate_pct": 66.67,
+          "profit_factor": 1.84,
+          "avg_win": 15.78,
+          "avg_loss": -17.14,
+          "expectancy_R": 0.561,
+          "avg_r_multiple": 0.561,
+          "max_drawdown_pct": -0.74,
+          "sharpe_ratio": 3.455,
+          "sortino_ratio": 5.903,
+          "avg_trade_duration_min": 5.6,
+          "long_trades": 25,
+          "short_trades": 20
+        },
+        "kept_pct": 75.0
+      }
+    }
   },
   {
     "instrument": "QQQ",
@@ -67,25 +93,51 @@
       "short_trades": 33
     },
     "gated": {
-      "num_trades": 11,
-      "starting_equity": 10000.0,
-      "ending_equity": 10002.77,
-      "total_return_pct": 0.03,
-      "cagr_pct": 0.12,
-      "win_rate_pct": 63.64,
-      "profit_factor": 1.04,
-      "avg_win": 9.45,
-      "avg_loss": -15.85,
-      "expectancy_R": 0.466,
-      "avg_r_multiple": 0.466,
-      "max_drawdown_pct": -0.47,
-      "sharpe_ratio": 0.138,
-      "sortino_ratio": 0.178,
-      "avg_trade_duration_min": 8.2,
-      "long_trades": 4,
-      "short_trades": 7
-    },
-    "kept_pct": 18.0
+      "green_only": {
+        "metrics": {
+          "num_trades": 11,
+          "starting_equity": 10000.0,
+          "ending_equity": 10002.77,
+          "total_return_pct": 0.03,
+          "cagr_pct": 0.12,
+          "win_rate_pct": 63.64,
+          "profit_factor": 1.04,
+          "avg_win": 9.45,
+          "avg_loss": -15.85,
+          "expectancy_R": 0.466,
+          "avg_r_multiple": 0.466,
+          "max_drawdown_pct": -0.47,
+          "sharpe_ratio": 0.138,
+          "sortino_ratio": 0.178,
+          "avg_trade_duration_min": 8.2,
+          "long_trades": 4,
+          "short_trades": 7
+        },
+        "kept_pct": 18.0
+      },
+      "not_red": {
+        "metrics": {
+          "num_trades": 45,
+          "starting_equity": 10000.0,
+          "ending_equity": 10016.61,
+          "total_return_pct": 0.17,
+          "cagr_pct": 0.7,
+          "win_rate_pct": 55.56,
+          "profit_factor": 1.06,
+          "avg_win": 12.47,
+          "avg_loss": -14.76,
+          "expectancy_R": 0.276,
+          "avg_r_multiple": 0.276,
+          "max_drawdown_pct": -1.7,
+          "sharpe_ratio": 0.344,
+          "sortino_ratio": 0.486,
+          "avg_trade_duration_min": 8.7,
+          "long_trades": 17,
+          "short_trades": 28
+        },
+        "kept_pct": 73.8
+      }
+    }
   },
   {
     "instrument": "QQQ",
@@ -111,25 +163,51 @@
       "short_trades": 33
     },
     "gated": {
-      "num_trades": 9,
-      "starting_equity": 10000.0,
-      "ending_equity": 9929.08,
-      "total_return_pct": -0.71,
-      "cagr_pct": -2.88,
-      "win_rate_pct": 44.44,
-      "profit_factor": 0.44,
-      "avg_win": 13.98,
-      "avg_loss": -25.37,
-      "expectancy_R": 0.031,
-      "avg_r_multiple": 0.031,
-      "max_drawdown_pct": -0.95,
-      "sharpe_ratio": -2.025,
-      "sortino_ratio": -2.216,
-      "avg_trade_duration_min": 3.9,
-      "long_trades": 4,
-      "short_trades": 5
-    },
-    "kept_pct": 16.1
+      "green_only": {
+        "metrics": {
+          "num_trades": 9,
+          "starting_equity": 10000.0,
+          "ending_equity": 9929.08,
+          "total_return_pct": -0.71,
+          "cagr_pct": -2.88,
+          "win_rate_pct": 44.44,
+          "profit_factor": 0.44,
+          "avg_win": 13.98,
+          "avg_loss": -25.37,
+          "expectancy_R": 0.031,
+          "avg_r_multiple": 0.031,
+          "max_drawdown_pct": -0.95,
+          "sharpe_ratio": -2.025,
+          "sortino_ratio": -2.216,
+          "avg_trade_duration_min": 3.9,
+          "long_trades": 4,
+          "short_trades": 5
+        },
+        "kept_pct": 16.1
+      },
+      "not_red": {
+        "metrics": {
+          "num_trades": 42,
+          "starting_equity": 10000.0,
+          "ending_equity": 9632.05,
+          "total_return_pct": -3.68,
+          "cagr_pct": -14.26,
+          "win_rate_pct": 42.86,
+          "profit_factor": 0.46,
+          "avg_win": 17.28,
+          "avg_loss": -28.29,
+          "expectancy_R": 0.002,
+          "avg_r_multiple": 0.002,
+          "max_drawdown_pct": -4.18,
+          "sharpe_ratio": -4.483,
+          "sortino_ratio": -4.993,
+          "avg_trade_duration_min": 5.8,
+          "long_trades": 17,
+          "short_trades": 25
+        },
+        "kept_pct": 75.0
+      }
+    }
   },
   {
     "instrument": "QQQ",
@@ -155,25 +233,51 @@
       "short_trades": 28
     },
     "gated": {
-      "num_trades": 10,
-      "starting_equity": 10000.0,
-      "ending_equity": 10014.41,
-      "total_return_pct": 0.14,
-      "cagr_pct": 0.61,
-      "win_rate_pct": 70.0,
-      "profit_factor": 1.24,
-      "avg_win": 10.81,
-      "avg_loss": -20.42,
-      "expectancy_R": 0.637,
-      "avg_r_multiple": 0.637,
-      "max_drawdown_pct": -0.51,
-      "sharpe_ratio": 0.629,
-      "sortino_ratio": 0.825,
-      "avg_trade_duration_min": 5.5,
-      "long_trades": 4,
-      "short_trades": 6
-    },
-    "kept_pct": 18.5
+      "green_only": {
+        "metrics": {
+          "num_trades": 10,
+          "starting_equity": 10000.0,
+          "ending_equity": 10014.41,
+          "total_return_pct": 0.14,
+          "cagr_pct": 0.61,
+          "win_rate_pct": 70.0,
+          "profit_factor": 1.24,
+          "avg_win": 10.81,
+          "avg_loss": -20.42,
+          "expectancy_R": 0.637,
+          "avg_r_multiple": 0.637,
+          "max_drawdown_pct": -0.51,
+          "sharpe_ratio": 0.629,
+          "sortino_ratio": 0.825,
+          "avg_trade_duration_min": 5.5,
+          "long_trades": 4,
+          "short_trades": 6
+        },
+        "kept_pct": 18.5
+      },
+      "not_red": {
+        "metrics": {
+          "num_trades": 42,
+          "starting_equity": 10000.0,
+          "ending_equity": 9760.23,
+          "total_return_pct": -2.4,
+          "cagr_pct": -9.69,
+          "win_rate_pct": 52.38,
+          "profit_factor": 0.54,
+          "avg_win": 12.97,
+          "avg_loss": -26.26,
+          "expectancy_R": 0.224,
+          "avg_r_multiple": 0.224,
+          "max_drawdown_pct": -2.53,
+          "sharpe_ratio": -3.476,
+          "sortino_ratio": -3.849,
+          "avg_trade_duration_min": 7.9,
+          "long_trades": 18,
+          "short_trades": 24
+        },
+        "kept_pct": 77.8
+      }
+    }
   },
   {
     "instrument": "QQQ",
@@ -199,25 +303,51 @@
       "short_trades": 61
     },
     "gated": {
-      "num_trades": 20,
-      "starting_equity": 10000.0,
-      "ending_equity": 9851.06,
-      "total_return_pct": -1.49,
-      "cagr_pct": -5.97,
-      "win_rate_pct": 45.0,
-      "profit_factor": 0.36,
-      "avg_win": 9.4,
-      "avg_loss": -21.23,
-      "expectancy_R": 0.002,
-      "avg_r_multiple": 0.002,
-      "max_drawdown_pct": -1.56,
-      "sharpe_ratio": -3.082,
-      "sortino_ratio": -3.19,
-      "avg_trade_duration_min": 8.2,
-      "long_trades": 6,
-      "short_trades": 14
-    },
-    "kept_pct": 18.7
+      "green_only": {
+        "metrics": {
+          "num_trades": 20,
+          "starting_equity": 10000.0,
+          "ending_equity": 9851.06,
+          "total_return_pct": -1.49,
+          "cagr_pct": -5.97,
+          "win_rate_pct": 45.0,
+          "profit_factor": 0.36,
+          "avg_win": 9.4,
+          "avg_loss": -21.23,
+          "expectancy_R": 0.002,
+          "avg_r_multiple": 0.002,
+          "max_drawdown_pct": -1.56,
+          "sharpe_ratio": -3.082,
+          "sortino_ratio": -3.19,
+          "avg_trade_duration_min": 8.2,
+          "long_trades": 6,
+          "short_trades": 14
+        },
+        "kept_pct": 18.7
+      },
+      "not_red": {
+        "metrics": {
+          "num_trades": 85,
+          "starting_equity": 10000.0,
+          "ending_equity": 9633.79,
+          "total_return_pct": -3.66,
+          "cagr_pct": -14.2,
+          "win_rate_pct": 50.59,
+          "profit_factor": 0.62,
+          "avg_win": 14.05,
+          "avg_loss": -23.11,
+          "expectancy_R": 0.175,
+          "avg_r_multiple": 0.175,
+          "max_drawdown_pct": -4.23,
+          "sharpe_ratio": -3.821,
+          "sortino_ratio": -4.412,
+          "avg_trade_duration_min": 8.4,
+          "long_trades": 35,
+          "short_trades": 50
+        },
+        "kept_pct": 79.4
+      }
+    }
   },
   {
     "instrument": "QQQ",
@@ -243,25 +373,51 @@
       "short_trades": 49
     },
     "gated": {
-      "num_trades": 18,
-      "starting_equity": 10000.0,
-      "ending_equity": 10060.7,
-      "total_return_pct": 0.61,
-      "cagr_pct": 2.57,
-      "win_rate_pct": 66.67,
-      "profit_factor": 1.76,
-      "avg_win": 11.72,
-      "avg_loss": -13.31,
-      "expectancy_R": 0.542,
-      "avg_r_multiple": 0.542,
-      "max_drawdown_pct": -0.3,
-      "sharpe_ratio": 2.451,
-      "sortino_ratio": 4.79,
-      "avg_trade_duration_min": 10.3,
-      "long_trades": 6,
-      "short_trades": 12
-    },
-    "kept_pct": 18.9
+      "green_only": {
+        "metrics": {
+          "num_trades": 18,
+          "starting_equity": 10000.0,
+          "ending_equity": 10060.7,
+          "total_return_pct": 0.61,
+          "cagr_pct": 2.57,
+          "win_rate_pct": 66.67,
+          "profit_factor": 1.76,
+          "avg_win": 11.72,
+          "avg_loss": -13.31,
+          "expectancy_R": 0.542,
+          "avg_r_multiple": 0.542,
+          "max_drawdown_pct": -0.3,
+          "sharpe_ratio": 2.451,
+          "sortino_ratio": 4.79,
+          "avg_trade_duration_min": 10.3,
+          "long_trades": 6,
+          "short_trades": 12
+        },
+        "kept_pct": 18.9
+      },
+      "not_red": {
+        "metrics": {
+          "num_trades": 76,
+          "starting_equity": 10000.0,
+          "ending_equity": 9766.6,
+          "total_return_pct": -2.33,
+          "cagr_pct": -9.44,
+          "win_rate_pct": 50.0,
+          "profit_factor": 0.69,
+          "avg_win": 13.67,
+          "avg_loss": -19.81,
+          "expectancy_R": 0.159,
+          "avg_r_multiple": 0.159,
+          "max_drawdown_pct": -2.54,
+          "sharpe_ratio": -2.699,
+          "sortino_ratio": -3.356,
+          "avg_trade_duration_min": 12.9,
+          "long_trades": 34,
+          "short_trades": 42
+        },
+        "kept_pct": 80.0
+      }
+    }
   },
   {
     "instrument": "US100 (proxy NQ)",
@@ -287,25 +443,51 @@
       "short_trades": 38
     },
     "gated": {
-      "num_trades": 3,
-      "starting_equity": 10000.0,
-      "ending_equity": 9954.92,
-      "total_return_pct": -0.45,
-      "cagr_pct": -1.84,
-      "win_rate_pct": 0.0,
-      "profit_factor": 0.0,
-      "avg_win": 0.0,
-      "avg_loss": -15.03,
-      "expectancy_R": -1.079,
-      "avg_r_multiple": -1.079,
-      "max_drawdown_pct": -0.45,
-      "sharpe_ratio": -3.443,
-      "sortino_ratio": -3.364,
-      "avg_trade_duration_min": 6.7,
-      "long_trades": 1,
-      "short_trades": 2
-    },
-    "kept_pct": 5.0
+      "green_only": {
+        "metrics": {
+          "num_trades": 3,
+          "starting_equity": 10000.0,
+          "ending_equity": 9954.92,
+          "total_return_pct": -0.45,
+          "cagr_pct": -1.84,
+          "win_rate_pct": 0.0,
+          "profit_factor": 0.0,
+          "avg_win": 0.0,
+          "avg_loss": -15.03,
+          "expectancy_R": -1.079,
+          "avg_r_multiple": -1.079,
+          "max_drawdown_pct": -0.45,
+          "sharpe_ratio": -3.443,
+          "sortino_ratio": -3.364,
+          "avg_trade_duration_min": 6.7,
+          "long_trades": 1,
+          "short_trades": 2
+        },
+        "kept_pct": 5.0
+      },
+      "not_red": {
+        "metrics": {
+          "num_trades": 28,
+          "starting_equity": 10000.0,
+          "ending_equity": 10033.14,
+          "total_return_pct": 0.33,
+          "cagr_pct": 1.37,
+          "win_rate_pct": 60.71,
+          "profit_factor": 1.2,
+          "avg_win": 11.6,
+          "avg_loss": -14.91,
+          "expectancy_R": 0.399,
+          "avg_r_multiple": 0.399,
+          "max_drawdown_pct": -0.95,
+          "sharpe_ratio": 0.903,
+          "sortino_ratio": 1.25,
+          "avg_trade_duration_min": 5.7,
+          "long_trades": 11,
+          "short_trades": 17
+        },
+        "kept_pct": 46.7
+      }
+    }
   },
   {
     "instrument": "US100 (proxy NQ)",
@@ -331,25 +513,51 @@
       "short_trades": 24
     },
     "gated": {
-      "num_trades": 4,
-      "starting_equity": 10000.0,
-      "ending_equity": 10013.27,
-      "total_return_pct": 0.13,
-      "cagr_pct": 0.53,
-      "win_rate_pct": 75.0,
-      "profit_factor": 1.55,
-      "avg_win": 12.42,
-      "avg_loss": -23.99,
-      "expectancy_R": 0.77,
-      "avg_r_multiple": 0.77,
-      "max_drawdown_pct": -0.24,
-      "sharpe_ratio": 0.803,
-      "sortino_ratio": 1.103,
-      "avg_trade_duration_min": 2.5,
-      "long_trades": 2,
-      "short_trades": 2
-    },
-    "kept_pct": 6.5
+      "green_only": {
+        "metrics": {
+          "num_trades": 4,
+          "starting_equity": 10000.0,
+          "ending_equity": 10013.27,
+          "total_return_pct": 0.13,
+          "cagr_pct": 0.53,
+          "win_rate_pct": 75.0,
+          "profit_factor": 1.55,
+          "avg_win": 12.42,
+          "avg_loss": -23.99,
+          "expectancy_R": 0.77,
+          "avg_r_multiple": 0.77,
+          "max_drawdown_pct": -0.24,
+          "sharpe_ratio": 0.803,
+          "sortino_ratio": 1.103,
+          "avg_trade_duration_min": 2.5,
+          "long_trades": 2,
+          "short_trades": 2
+        },
+        "kept_pct": 6.5
+      },
+      "not_red": {
+        "metrics": {
+          "num_trades": 31,
+          "starting_equity": 10000.0,
+          "ending_equity": 9999.21,
+          "total_return_pct": -0.01,
+          "cagr_pct": -0.03,
+          "win_rate_pct": 58.06,
+          "profit_factor": 1.0,
+          "avg_win": 13.76,
+          "avg_loss": -19.11,
+          "expectancy_R": 0.342,
+          "avg_r_multiple": 0.342,
+          "max_drawdown_pct": -0.6,
+          "sharpe_ratio": -0.005,
+          "sortino_ratio": -0.007,
+          "avg_trade_duration_min": 6.3,
+          "long_trades": 18,
+          "short_trades": 13
+        },
+        "kept_pct": 50.0
+      }
+    }
   },
   {
     "instrument": "US100 (proxy NQ)",
@@ -375,25 +583,51 @@
       "short_trades": 41
     },
     "gated": {
-      "num_trades": 6,
-      "starting_equity": 10000.0,
-      "ending_equity": 9931.38,
-      "total_return_pct": -0.69,
-      "cagr_pct": -2.79,
-      "win_rate_pct": 50.0,
-      "profit_factor": 0.34,
-      "avg_win": 11.99,
-      "avg_loss": -34.86,
-      "expectancy_R": 0.158,
-      "avg_r_multiple": 0.158,
-      "max_drawdown_pct": -0.74,
-      "sharpe_ratio": -2.055,
-      "sortino_ratio": -2.171,
-      "avg_trade_duration_min": 14.2,
-      "long_trades": 1,
-      "short_trades": 5
-    },
-    "kept_pct": 10.5
+      "green_only": {
+        "metrics": {
+          "num_trades": 6,
+          "starting_equity": 10000.0,
+          "ending_equity": 9931.38,
+          "total_return_pct": -0.69,
+          "cagr_pct": -2.79,
+          "win_rate_pct": 50.0,
+          "profit_factor": 0.34,
+          "avg_win": 11.99,
+          "avg_loss": -34.86,
+          "expectancy_R": 0.158,
+          "avg_r_multiple": 0.158,
+          "max_drawdown_pct": -0.74,
+          "sharpe_ratio": -2.055,
+          "sortino_ratio": -2.171,
+          "avg_trade_duration_min": 14.2,
+          "long_trades": 1,
+          "short_trades": 5
+        },
+        "kept_pct": 10.5
+      },
+      "not_red": {
+        "metrics": {
+          "num_trades": 32,
+          "starting_equity": 10000.0,
+          "ending_equity": 9692.55,
+          "total_return_pct": -3.07,
+          "cagr_pct": -12.03,
+          "win_rate_pct": 37.5,
+          "profit_factor": 0.35,
+          "avg_win": 13.55,
+          "avg_loss": -23.5,
+          "expectancy_R": -0.146,
+          "avg_r_multiple": -0.146,
+          "max_drawdown_pct": -3.47,
+          "sharpe_ratio": -5.165,
+          "sortino_ratio": -5.372,
+          "avg_trade_duration_min": 6.2,
+          "long_trades": 12,
+          "short_trades": 20
+        },
+        "kept_pct": 56.1
+      }
+    }
   },
   {
     "instrument": "US100 (proxy NQ)",
@@ -419,25 +653,51 @@
       "short_trades": 30
     },
     "gated": {
-      "num_trades": 6,
-      "starting_equity": 10000.0,
-      "ending_equity": 9938.08,
-      "total_return_pct": -0.62,
-      "cagr_pct": -2.46,
-      "win_rate_pct": 33.33,
-      "profit_factor": 0.45,
-      "avg_win": 25.73,
-      "avg_loss": -28.34,
-      "expectancy_R": -0.221,
-      "avg_r_multiple": -0.221,
-      "max_drawdown_pct": -0.99,
-      "sharpe_ratio": -1.611,
-      "sortino_ratio": -1.875,
-      "avg_trade_duration_min": 5.8,
-      "long_trades": 4,
-      "short_trades": 2
-    },
-    "kept_pct": 10.5
+      "green_only": {
+        "metrics": {
+          "num_trades": 6,
+          "starting_equity": 10000.0,
+          "ending_equity": 9938.08,
+          "total_return_pct": -0.62,
+          "cagr_pct": -2.46,
+          "win_rate_pct": 33.33,
+          "profit_factor": 0.45,
+          "avg_win": 25.73,
+          "avg_loss": -28.34,
+          "expectancy_R": -0.221,
+          "avg_r_multiple": -0.221,
+          "max_drawdown_pct": -0.99,
+          "sharpe_ratio": -1.611,
+          "sortino_ratio": -1.875,
+          "avg_trade_duration_min": 5.8,
+          "long_trades": 4,
+          "short_trades": 2
+        },
+        "kept_pct": 10.5
+      },
+      "not_red": {
+        "metrics": {
+          "num_trades": 34,
+          "starting_equity": 10000.0,
+          "ending_equity": 9897.97,
+          "total_return_pct": -1.02,
+          "cagr_pct": -4.03,
+          "win_rate_pct": 47.06,
+          "profit_factor": 0.79,
+          "avg_win": 24.09,
+          "avg_loss": -27.09,
+          "expectancy_R": 0.107,
+          "avg_r_multiple": 0.107,
+          "max_drawdown_pct": -2.61,
+          "sharpe_ratio": -1.155,
+          "sortino_ratio": -1.602,
+          "avg_trade_duration_min": 10.0,
+          "long_trades": 18,
+          "short_trades": 16
+        },
+        "kept_pct": 59.6
+      }
+    }
   },
   {
     "instrument": "US100 (proxy NQ)",
@@ -463,25 +723,51 @@
       "short_trades": 191
     },
     "gated": {
-      "num_trades": 67,
-      "starting_equity": 10000.0,
-      "ending_equity": 9916.77,
-      "total_return_pct": -0.83,
-      "cagr_pct": -3.34,
-      "win_rate_pct": 43.28,
-      "profit_factor": 0.79,
-      "avg_win": 10.96,
-      "avg_loss": -10.56,
-      "expectancy_R": -0.026,
-      "avg_r_multiple": -0.026,
-      "max_drawdown_pct": -1.45,
-      "sharpe_ratio": -1.531,
-      "sortino_ratio": -1.904,
-      "avg_trade_duration_min": 23.7,
-      "long_trades": 24,
-      "short_trades": 43
-    },
-    "kept_pct": 20.3
+      "green_only": {
+        "metrics": {
+          "num_trades": 67,
+          "starting_equity": 10000.0,
+          "ending_equity": 9916.77,
+          "total_return_pct": -0.83,
+          "cagr_pct": -3.34,
+          "win_rate_pct": 43.28,
+          "profit_factor": 0.79,
+          "avg_win": 10.96,
+          "avg_loss": -10.56,
+          "expectancy_R": -0.026,
+          "avg_r_multiple": -0.026,
+          "max_drawdown_pct": -1.45,
+          "sharpe_ratio": -1.531,
+          "sortino_ratio": -1.904,
+          "avg_trade_duration_min": 23.7,
+          "long_trades": 24,
+          "short_trades": 43
+        },
+        "kept_pct": 20.3
+      },
+      "not_red": {
+        "metrics": {
+          "num_trades": 257,
+          "starting_equity": 10000.0,
+          "ending_equity": 9793.93,
+          "total_return_pct": -2.06,
+          "cagr_pct": -8.1,
+          "win_rate_pct": 49.03,
+          "profit_factor": 0.87,
+          "avg_win": 11.42,
+          "avg_loss": -12.56,
+          "expectancy_R": 0.089,
+          "avg_r_multiple": 0.089,
+          "max_drawdown_pct": -4.33,
+          "sharpe_ratio": -1.621,
+          "sortino_ratio": -1.973,
+          "avg_trade_duration_min": 22.0,
+          "long_trades": 114,
+          "short_trades": 143
+        },
+        "kept_pct": 77.9
+      }
+    }
   },
   {
     "instrument": "US100 (proxy NQ)",
@@ -507,24 +793,50 @@
       "short_trades": 165
     },
     "gated": {
-      "num_trades": 46,
-      "starting_equity": 10000.0,
-      "ending_equity": 9918.05,
-      "total_return_pct": -0.82,
-      "cagr_pct": -3.25,
-      "win_rate_pct": 54.35,
-      "profit_factor": 0.75,
-      "avg_win": 9.71,
-      "avg_loss": -15.46,
-      "expectancy_R": 0.223,
-      "avg_r_multiple": 0.223,
-      "max_drawdown_pct": -1.31,
-      "sharpe_ratio": -1.395,
-      "sortino_ratio": -1.586,
-      "avg_trade_duration_min": 19.2,
-      "long_trades": 19,
-      "short_trades": 27
-    },
-    "kept_pct": 14.4
+      "green_only": {
+        "metrics": {
+          "num_trades": 46,
+          "starting_equity": 10000.0,
+          "ending_equity": 9918.05,
+          "total_return_pct": -0.82,
+          "cagr_pct": -3.25,
+          "win_rate_pct": 54.35,
+          "profit_factor": 0.75,
+          "avg_win": 9.71,
+          "avg_loss": -15.46,
+          "expectancy_R": 0.223,
+          "avg_r_multiple": 0.223,
+          "max_drawdown_pct": -1.31,
+          "sharpe_ratio": -1.395,
+          "sortino_ratio": -1.586,
+          "avg_trade_duration_min": 19.2,
+          "long_trades": 19,
+          "short_trades": 27
+        },
+        "kept_pct": 14.4
+      },
+      "not_red": {
+        "metrics": {
+          "num_trades": 249,
+          "starting_equity": 10000.0,
+          "ending_equity": 10018.21,
+          "total_return_pct": 0.18,
+          "cagr_pct": 0.73,
+          "win_rate_pct": 55.82,
+          "profit_factor": 1.01,
+          "avg_win": 10.04,
+          "avg_loss": -12.53,
+          "expectancy_R": 0.243,
+          "avg_r_multiple": 0.243,
+          "max_drawdown_pct": -2.02,
+          "sharpe_ratio": 0.172,
+          "sortino_ratio": 0.263,
+          "avg_trade_duration_min": 19.9,
+          "long_trades": 116,
+          "short_trades": 133
+        },
+        "kept_pct": 78.1
+      }
+    }
   }
 ]
