@@ -62,7 +62,15 @@ def load_csv(path: str | Path, tz: str = "America/New_York") -> pd.DataFrame:
     if missing:
         raise ValueError(f"Faltan columnas requeridas en el CSV: {missing}")
 
-    df["datetime"] = pd.to_datetime(df["datetime"], utc=False)
+    try:
+        df["datetime"] = pd.to_datetime(df["datetime"], utc=False)
+    except ValueError:
+        # CSVs que cruzan un cambio de horario (ej. EDT -> EST) traen offsets
+        # distintos por fila ("-04:00" en verano, "-05:00" en invierno) --
+        # pandas ya no los deja mezclar sin utc=True. Al parsear así, cada
+        # instante queda bien definido en UTC y el tz_convert de abajo lo
+        # pasa correctamente a la zona objetivo (sin desplazar el reloj).
+        df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
     df = df.set_index("datetime").sort_index()
 
     if df.index.tz is None:

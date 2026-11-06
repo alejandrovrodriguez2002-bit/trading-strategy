@@ -243,6 +243,50 @@ def test_poc_tp_mode_targets_previous_session_point_of_control():
     assert t["exit_reason"] == "TP"
 
 
+def _4h_candle_test_rows():
+    return [
+        _bar(100, 101, 99.5, 100.5, 1000),   # vela de 4h #1 (00:00-03:00): high=101
+        _bar(100.5, 100.6, 99, 99.5, 1000),  # vela de 4h #1: low=99
+        _bar(99.5, 99.6, 99.4, 99.5, 1000),
+        _bar(99.5, 99.6, 99.4, 99.5, 1000),  # fin de la vela de 4h #1 -> rango [99, 101]
+        _bar(100, 101.5, 99.8, 101.2, 1000),  # vela de 4h #2 (04:00): rompe el high de la #1 -> fade a short
+        _bar(101, 101.3, 100.8, 101, 1000),   # resto de la vela de 4h #2, sin extender su rango
+        _bar(101, 101.2, 100.9, 101, 1000),
+        _bar(101, 101.2, 100.9, 101, 1000),  # fin de la vela de 4h #2 -> rango [99.8, 101.5]
+    ] + [_bar(101, 101.2, 100.9, 101, 1000)] * 4  # búsqueda de la 2da ocurrencia: se queda DENTRO del rango -> sin trade
+
+
+def test_4h_candle_range_source_marks_closed_candle_and_fades_next_breakout():
+    from src.simple_orb import generate_trades_4h_candle
+
+    idx = pd.date_range("2026-01-05 00:00", periods=12, freq="1h", tz="America/New_York")
+    df = pd.DataFrame(_4h_candle_test_rows(), index=idx)
+
+    cfg = SimpleORBConfig(range_source="4h_candle", direction_mode="fade", sl_buffer_pct=0.03, slippage_bps=0.0)
+    trades = generate_trades_4h_candle(df, cfg, search_hours=4.0)
+    assert len(trades) == 1
+    t = trades.iloc[0]
+    assert t["or_high"] == 101.0 and t["or_low"] == 99.0  # high/low de la vela de 4h CERRADA
+    assert t["direction"] == "short"
+    assert t["entry_price"] == 101.0
+
+
+def test_4h_candle_respects_regime_filter():
+    from src.simple_orb import generate_trades_4h_candle
+
+    idx = pd.date_range("2026-01-05 00:00", periods=12, freq="1h", tz="America/New_York")
+    df = pd.DataFrame(_4h_candle_test_rows(), index=idx)
+    cfg = SimpleORBConfig(range_source="4h_candle", direction_mode="fade", sl_buffer_pct=0.03, slippage_bps=0.0)
+
+    regime_red = pd.Series(-1, index=idx)  # régimen VOLÁTIL en toda la serie -> nunca se toma el trade
+    trades_red = generate_trades_4h_candle(df, cfg, regime=regime_red, search_hours=4.0)
+    assert len(trades_red) == 0
+
+    regime_green = pd.Series(1, index=idx)  # régimen ESTRUCTURADO -> se toma igual que sin filtro
+    trades_green = generate_trades_4h_candle(df, cfg, regime=regime_green, search_hours=4.0)
+    assert len(trades_green) == 1
+
+
 def test_run_backtest_simple_builds_equity_curve():
     rows = [
         _bar(100, 101, 99, 100.5, 1000),
@@ -259,3 +303,37 @@ def test_run_backtest_simple_builds_equity_curve():
     trades, equity_curve = run_backtest_simple(df, cfg)
     assert len(trades) == 1
     assert equity_curve.iloc[-1] > equity_curve.iloc[0]  # ganó el TP
+
+
+def test_run_backtest_simple_dispatches_to_4h_candle_and_applies_regime():
+    idx = pd.date_range("2026-01-05 00:00", periods=12, freq="1h", tz="America/New_York")
+    df = pd.DataFrame(_4h_candle_test_rows(), index=idx)
+    cfg = SimpleORBConfig(
+        range_source="4h_candle", direction_mode="fade", sl_buffer_pct=0.03,
+        slippage_bps=0.0, session_only=False,
+    )
+    trades, ec = run_backtest_simple(df, cfg)
+    assert len(trades) == 1  # sin régimen, se comporta igual que generate_trades_4h_candle
+
+    regime_red = pd.Series(-1, index=idx)
+    trades_gated, _ = run_backtest_simple(df, cfg, regime=regime_red)
+    assert len(trades_gated) == 0  # el filtro de régimen se aplicó también desde run_backtest_simple
+
+
+def test_4h_candle_trade_date_is_plain_calendar_date_not_full_timestamp():
+    """Regresión: run_backtest_simple agrupa pnl por `trades["date"]` vs
+    `df.index.date` para construir la curva de equity diaria -- si
+    generate_trades_4h_candle dejara el timestamp completo de la vela de
+    4h en vez de solo la fecha, esas claves nunca calzarían, la curva de
+    equity quedaría plana todo el historial, y Sortino/drawdown saldrían
+    siempre 0.0 (bug real, visto corriendo esto sobre datos reales)."""
+    idx = pd.date_range("2026-01-05 00:00", periods=12, freq="1h", tz="America/New_York")
+    df = pd.DataFrame(_4h_candle_test_rows(), index=idx)
+    cfg = SimpleORBConfig(
+        range_source="4h_candle", direction_mode="fade", sl_buffer_pct=0.03,
+        slippage_bps=0.0, session_only=False,
+    )
+    trades, ec = run_backtest_simple(df, cfg)
+    assert len(trades) == 1
+    assert trades.iloc[0]["date"] == idx[0].date()  # fecha calendario pura, no el Timestamp completo
+    assert ec.nunique() > 1  # la curva de equity debe moverse (no quedar plana en el valor inicial)

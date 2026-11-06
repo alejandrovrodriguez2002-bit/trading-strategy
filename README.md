@@ -634,6 +634,9 @@ python scripts/run_session_zone_grid.py
 
 # 7) Reacción al rango de Asia durante Londres (señal real pero débil, no robusta -- ver sección arriba)
 python scripts/run_asia_london_reaction_grid.py
+
+# 8) Filtro de régimen (Market Regime v7) por nivel -- empeora la variante que sí funciona, ver sección arriba
+python scripts/run_regime_gated_levels.py
 ```
 
 Esto genera en `results/`: `trades.csv` (log completo de operaciones),
@@ -862,6 +865,87 @@ la sesión completa — se documenta la función (`volume_subwindow_hours`,
 con test unitario) porque es una herramienta reutilizable y la pregunta
 era válida, pero la respuesta real es que no ayuda aquí. No se
 recomienda operar esta variante en vivo sin más validación.
+
+## Filtro de régimen de mercado ("Market Regime v7") — empeora la estrategia que sí funciona
+
+A pedido, se portó a Python (`src/market_regime.py`, ver docstring para
+el detalle de cada métrica) el indicador Pine Script "Market Regime v7"
+subido por el usuario: un consenso de 5 métricas cuantitativas (Hurst
+por razón de varianzas, dimensión fractal estilo FRAMA, entropía de
+permutación, eficiencia de Kaufman, y un proxy de GEX por compresión de
+volatilidad) que vota ESTRUCTURADO (+1, "verde"), VOLÁTIL (-1) o NEUTRAL
+(0), con histéresis para evitar parpadeo. **Nota honesta**: se tradujo
+leyendo el Pine línea por línea, pero no se pudo correr el Pine real
+para validar valor por valor contra TradingView desde este entorno (sin
+runtime de Pine aquí) — se validó con pruebas de sanidad (rangos
+válidos, invariantes en series sintéticas conocidas), no con una
+comparación directa contra el indicador en vivo.
+
+Se probó la hipótesis pedida: **tomar la misma receta ya validada (fade
++ SL en la mecha real + TP=1.5R fijo) solo cuando el régimen está en
+ESTRUCTURADO/verde en la vela de rompimiento**, en tres niveles de
+referencia (`src/simple_orb.py`):
+
+- **Apertura (OR30)**: el rango de apertura de 30 min de NY — la
+  variante ya validada.
+- **Día anterior (PDH/PDL)**: ya probada antes, sin edge por sí sola.
+- **4 horas**: high/low de la última vela de 4h cerrada (ancla de reloj
+  NY 00/04/08/12/16/20) — `range_source="4h_candle"`, nuevo en este
+  motor, reutiliza toda la lógica de entrada/SL/TP/sizing existente.
+
+Sobre QQQ y US100 (proxy NQ), con split honesto train/test:
+
+![Liquidez por nivel](results/regime_gated_levels/liquidity_by_level.png)
+
+**El filtro recorta la muestra a 5-20% de los trades originales, en
+TODOS los niveles y los dos instrumentos** — el régimen ESTRUCTURADO solo
+está activo ~19-22% del tiempo, y exigir que coincida justo con la vela
+de rompimiento es una intersección de dos condiciones poco frecuentes.
+
+![Rentabilidad por nivel](results/regime_gated_levels/profitability_by_level.png)
+
+**Resultado: el filtro de régimen no mejora de forma confiable ningún
+nivel, y en el único caso con muestra grande, lo empeora.** Mirado por
+instrumento:
+
+- **US100 (NQ) — apertura (OR30), la variante que SÍ funciona**: el
+  filtro la destruye. La muestra cae a 3-4 trades (de 60-62) y el
+  profit factor se desploma (train 0.0, test 1.55 pero sobre 4 trades,
+  no es una base confiable). La curva de equity lo deja clarísimo:
+
+  ![Equity QQQ y US100 por nivel](results/regime_gated_levels/equity_curves_US100_proxy_NQ.png)
+
+  Sin filtro, el equity de OR30 sube de forma sostenida de 10,000 a
+  ~10,400 (el edge ya conocido). Con el filtro, se queda prácticamente
+  plano/cae a ~9,650 — el filtro no está dejando pasar la mayoría de los
+  trades que hacen ganar a la estrategia.
+- **QQQ — apertura (OR30)**: train se ve bien con el filtro (PF 2.75)
+  pero es sobre 8 trades; en test (11 trades) cae a PF 1.04/Sortino 0.18
+  — básicamente breakeven, sin mejora real sobre el 1.20/1.88 sin filtro.
+- **PDH/PDL y 4 horas en QQQ**: el filtro "mejora" el test (PF 1.24 y
+  1.76 respectivamente) pero sobre muestras de 10 y 18 trades, con
+  **train empeorando** en ambos casos (0.44 y 0.36) — es el mismo patrón
+  de ruido de muestra pequeña ya documentado varias veces en este
+  proyecto (train y test deberían moverse juntos si fuera una edge real,
+  no en direcciones opuestas).
+- **4 horas en US100 (NQ) es el único caso con muestra grande tras el
+  filtro (67 y 46 trades train/test)** — y ahí el filtro simplemente **no
+  ayuda**: profit factor prácticamente igual o levemente peor con el
+  filtro (train 0.82→0.79, test 0.98→0.75) en ambos lados.
+
+Conclusión: como se implementó (régimen exacto en la vela de
+rompimiento, sin ventana de tolerancia), el filtro de "Market Regime v7"
+no aporta una mejora real en ningún nivel probado, y sobre la única
+estrategia con edge confirmado (OR30) la perjudica al recortar la
+muestra a un puñado de trades no representativos. No se recomienda
+usarlo como está. Posibles variantes a probar si se quiere seguir esta
+línea (no incluidas aquí): exigir régimen "no rojo" en vez de "verde"
+estricto (un umbral menos exigente), o evaluarlo en una ventana de N
+velas antes del rompimiento en vez de en la vela exacta.
+
+Reportes y datos completos: `results/regime_gated_levels/` (`.md`,
+`.json`, y las 4 imágenes). Reproducible con
+`python scripts/run_regime_gated_levels.py`.
 
 ## Próximos pasos sugeridos
 

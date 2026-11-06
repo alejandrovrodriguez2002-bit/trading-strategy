@@ -63,7 +63,20 @@ Reglas:
      usa `or_minutes` ni el filtro de volumen (no hay "apertura" que
      medir); la búsqueda de rompimiento arranca desde el open de la
      sesión.
-7. Si no se toca ni el SL ni el TP, se cierra al cierre de la sesión.
+   - "4h_candle": el high/low de la última vela de 4 horas CERRADA (ancla
+     de reloj NY 00/04/08/12/16/20) -- se usa `generate_trades_4h_candle`
+     en vez de `generate_trades_simple` (la cadencia es cada 4h, no una
+     vez al día, así que no encaja en el loop diario). La búsqueda del
+     rompimiento dura `search_hours` (4h por defecto, hasta que cierre la
+     vela de 4h SIGUIENTE).
+7. Filtro de régimen opcional (`regime`, se pasa como argumento aparte a
+   `generate_trades_simple`/`generate_trades_4h_candle`, no como campo de
+   config): una `pd.Series` de -1/0/1 alineada 1:1 con `df` (ver
+   `src/market_regime.py`). Si se pasa, solo se toma el trade cuando el
+   régimen en la vela de rompimiento es +1 (ESTRUCTURADO) -- si no, se
+   descarta esa ocurrencia (mismo tratamiento que el filtro de tendencia).
+8. Si no se toca ni el SL ni el TP, se cierra al cierre de la sesión (o,
+   en modo "4h_candle", al final del horizonte de búsqueda).
 
 Esta es una hipótesis a validar, no una promesa de que "funciona": se
 prueba con un split honesto entrenamiento/prueba (ver
@@ -269,9 +282,118 @@ def _prev_session_ref(df: pd.DataFrame, day_groups: list[tuple], poc_bins: int =
     return ref
 
 
-def generate_trades_simple(df: pd.DataFrame, cfg: SimpleORBConfig) -> pd.DataFrame:
+def _regime_allows(regime: Optional[pd.Series], breakout_pos: int) -> bool:
+    """True si no hay filtro de régimen, o si el régimen en la vela de
+    rompimiento es +1 (ESTRUCTURADO/verde). `regime` debe estar alineado
+    POSICIONALMENTE con el `df` usado para encontrar `breakout_pos` (ver
+    `src/market_regime.py: compute_regime`)."""
+    if regime is None:
+        return True
+    val = regime.iloc[breakout_pos]
+    return not pd.isna(val) and int(val) == 1
+
+
+def _try_build_trade(
+    df: pd.DataFrame,
+    date_key,
+    or_high: float,
+    or_low: float,
+    search_start: int,
+    search_end: int,
+    cfg: SimpleORBConfig,
+    equity: float,
+    trend_by_date: Optional[dict] = None,
+    poc_ref: Optional[float] = None,
+    regime: Optional[pd.Series] = None,
+):
+    """Intenta construir UN trade a partir del primer rompimiento de
+    [or_low, or_high] entre `search_start` y `search_end`. Devuelve
+    (Trade o None, posición de salida o None) -- usado tanto por
+    `generate_trades_simple` (día por día) como por
+    `generate_trades_4h_candle` (cada 4h), para no duplicar la lógica de
+    entrada/SL/TP/sizing."""
+    breakout = _find_breakout_fill(df, search_start, search_end, or_high, or_low)
+    if breakout is None:
+        return None, None
+    breakout_pos, raw_direction, raw_fill_price, bar_high, bar_low = breakout
+
+    if cfg.direction_mode == "fade":
+        direction = "short" if raw_direction == "long" else "long"
+        sl_anchor = bar_high if direction == "short" else bar_low
+    else:
+        direction = raw_direction
+        sl_anchor = or_low if direction == "long" else or_high
+
+    if cfg.trend_filter_enabled and trend_by_date is not None:
+        trend = trend_by_date.get(date_key)
+        if (direction == "long" and trend != "up") or (direction == "short" and trend != "down"):
+            return None, None  # el sesgo de tendencia del día anterior no coincide
+
+    if not _regime_allows(regime, breakout_pos):
+        return None, None  # el régimen no estaba ESTRUCTURADO en la vela de rompimiento
+
+    entry_pos = breakout_pos
+    entry_price = _apply_slippage(raw_fill_price, direction, "entry", cfg.slippage_bps)
+
+    sl, tp, reason = _compute_sl_tp_simple(df, entry_pos, entry_price, direction, sl_anchor, cfg)
+    if sl is None:
+        return None, None
+
+    if cfg.tp_mode == "opposite_extreme":
+        # el objetivo es el lado del rango que NO se rompió -- se define por
+        # `raw_direction` (qué lado se rompió), no por `direction` (que en modo
+        # "fade" ya está invertida respecto al lado roto)
+        candidate_tp = or_low if raw_direction == "long" else or_high
+        if (direction == "long" and candidate_tp <= entry_price) or (
+            direction == "short" and candidate_tp >= entry_price
+        ):
+            return None, None  # el lado opuesto del rango ya quedó del lado equivocado
+        tp = candidate_tp
+    elif cfg.tp_mode == "poc":
+        if poc_ref is None:
+            return None, None  # sin POC disponible
+        if (direction == "long" and poc_ref <= entry_price) or (direction == "short" and poc_ref >= entry_price):
+            return None, None  # el POC ya quedó del lado equivocado
+        tp = poc_ref
+    # else "r_multiple": se deja el tp calculado por _compute_sl_tp_simple
+
+    exit_pos, raw_exit_price, exit_reason = _simulate_exit(df, entry_pos, search_end, direction, sl, tp)
+    exit_price = _apply_slippage(raw_exit_price, direction, "exit", cfg.slippage_bps)
+
+    risk_per_share = abs(entry_price - sl)
+    risk_amount = equity * (cfg.risk_per_trade_pct / 100.0)
+    shares = risk_amount / risk_per_share if risk_per_share > 0 else 0.0
+    if cfg.max_leverage is not None:
+        max_shares = (equity * cfg.max_leverage) / entry_price if entry_price > 0 else 0.0
+        shares = min(shares, max_shares)
+
+    sign = 1 if direction == "long" else -1
+    pnl = shares * sign * (exit_price - entry_price) - cfg.commission_per_trade
+    realized_risk_amount = shares * risk_per_share  # riesgo real tras el posible cap de leverage
+    r_multiple = pnl / realized_risk_amount if realized_risk_amount > 0 else 0.0
+
+    trade = Trade(
+        date=date_key,
+        direction=direction,
+        or_high=or_high,
+        or_low=or_low,
+        entry_time=df.index[entry_pos],
+        entry_price=entry_price,
+        sl=sl,
+        tp=tp,
+        exit_time=df.index[exit_pos],
+        exit_price=exit_price,
+        exit_reason=exit_reason,
+        shares=shares,
+        pnl=pnl,
+        r_multiple=r_multiple,
+    )
+    return trade, exit_pos
+
+
+def generate_trades_simple(df: pd.DataFrame, cfg: SimpleORBConfig, regime: Optional[pd.Series] = None) -> pd.DataFrame:
     """df debe incluir columnas open/high/low/close/volume, indexado en la
-    tz de la sesión (no requiere CVD)."""
+    tz de la sesión (no requiere CVD). `regime`: ver `_regime_allows`."""
     trades: list[Trade] = []
     equity = cfg.starting_equity
 
@@ -303,101 +425,110 @@ def generate_trades_simple(df: pd.DataFrame, cfg: SimpleORBConfig) -> pd.DataFra
                 continue
             search_start = start_pos  # sin "apertura" que esperar: el rango ya existe desde ayer
         else:
-            raise ValueError(f"range_source desconocido: {cfg.range_source!r}")
+            raise ValueError(f"range_source desconocido para generate_trades_simple: {cfg.range_source!r}")
 
         trades_today = 0
         search_pos = search_start
         while trades_today < cfg.max_trades_per_day and search_pos <= end_pos:
-            breakout = _find_breakout_fill(df, search_pos, end_pos, or_high, or_low)
-            if breakout is None:
-                break
-            breakout_pos, raw_direction, raw_fill_price, bar_high, bar_low = breakout
-
-            if cfg.direction_mode == "fade":
-                direction = "short" if raw_direction == "long" else "long"
-                sl_anchor = bar_high if direction == "short" else bar_low
-            else:
-                direction = raw_direction
-                sl_anchor = or_low if direction == "long" else or_high
-
-            if cfg.trend_filter_enabled:
-                trend = trend_by_date.get(date)
-                if (direction == "long" and trend != "up") or (direction == "short" and trend != "down"):
-                    break  # el sesgo de tendencia del día anterior no coincide -> se descarta el día
-
-            entry_pos = breakout_pos
-            entry_price = _apply_slippage(raw_fill_price, direction, "entry", cfg.slippage_bps)
-
-            sl, tp, reason = _compute_sl_tp_simple(df, entry_pos, entry_price, direction, sl_anchor, cfg)
-            if sl is None:
-                break
-
-            if cfg.tp_mode == "opposite_extreme":
-                # el objetivo es el lado del rango que NO se rompió -- se define por
-                # `raw_direction` (qué lado se rompió), no por `direction` (que en modo
-                # "fade" ya está invertida respecto al lado roto)
-                candidate_tp = or_low if raw_direction == "long" else or_high
-                if (direction == "long" and candidate_tp <= entry_price) or (
-                    direction == "short" and candidate_tp >= entry_price
-                ):
-                    break  # el lado opuesto del rango ya quedó del lado equivocado -> sin objetivo válido
-                tp = candidate_tp
-            elif cfg.tp_mode == "poc":
-                if poc_ref is None:
-                    break  # sin POC de la sesión anterior disponible (p.ej. primer día)
-                if (direction == "long" and poc_ref <= entry_price) or (
-                    direction == "short" and poc_ref >= entry_price
-                ):
-                    break  # el POC ya quedó del lado equivocado -> sin objetivo válido
-                tp = poc_ref
-            # else "r_multiple": se deja el tp calculado por _compute_sl_tp_simple
-
-            exit_pos, raw_exit_price, exit_reason = _simulate_exit(df, entry_pos, end_pos, direction, sl, tp)
-            exit_price = _apply_slippage(raw_exit_price, direction, "exit", cfg.slippage_bps)
-
-            risk_per_share = abs(entry_price - sl)
-            risk_amount = equity * (cfg.risk_per_trade_pct / 100.0)
-            shares = risk_amount / risk_per_share if risk_per_share > 0 else 0.0
-            if cfg.max_leverage is not None:
-                max_shares = (equity * cfg.max_leverage) / entry_price if entry_price > 0 else 0.0
-                shares = min(shares, max_shares)
-
-            sign = 1 if direction == "long" else -1
-            pnl = shares * sign * (exit_price - entry_price) - cfg.commission_per_trade
-            realized_risk_amount = shares * risk_per_share  # riesgo real tras el posible cap de leverage
-            r_multiple = pnl / realized_risk_amount if realized_risk_amount > 0 else 0.0
-            equity += pnl
-
-            trades.append(
-                Trade(
-                    date=date,
-                    direction=direction,
-                    or_high=or_high,
-                    or_low=or_low,
-                    entry_time=df.index[entry_pos],
-                    entry_price=entry_price,
-                    sl=sl,
-                    tp=tp,
-                    exit_time=df.index[exit_pos],
-                    exit_price=exit_price,
-                    exit_reason=exit_reason,
-                    shares=shares,
-                    pnl=pnl,
-                    r_multiple=r_multiple,
-                )
+            trade, exit_pos = _try_build_trade(
+                df, date, or_high, or_low, search_pos, end_pos, cfg, equity, trend_by_date, poc_ref, regime
             )
+            if trade is None:
+                break
+            trades.append(trade)
+            equity += trade.pnl
             trades_today += 1
             search_pos = exit_pos + 1
 
     return pd.DataFrame([dataclasses.asdict(t) for t in trades])
 
 
-def run_backtest_simple(df: pd.DataFrame, cfg: SimpleORBConfig) -> tuple[pd.DataFrame, pd.Series]:
-    """Igual que `src.backtest.run_backtest` pero para la variante sin CVD."""
+def _iter_4h_candle_occurrences(df: pd.DataFrame, search_hours: float = 4.0):
+    """Para cada vela de 4h (ancla de reloj NY 00/04/08/12/16/20) ya
+    CERRADA, genera (ref_time, mark_start_pos, mark_end_pos,
+    search_end_pos): la vela de 4h recién cerrada define el rango de
+    referencia (high/low), y se busca el rompimiento en las
+    `search_hours` siguientes (por defecto 4h, hasta que cierre la vela
+    de 4h SIGUIENTE)."""
+    local_naive = df.index.tz_localize(None)
+    bucket = local_naive.floor("4h")
+    bucket_arr = bucket.values
+    change_pos = np.flatnonzero(np.r_[True, bucket_arr[1:] != bucket_arr[:-1]])
+    n = len(df)
+    for i in range(len(change_pos) - 1):
+        mark_start_pos = int(change_pos[i])
+        mark_end_pos = int(change_pos[i + 1])
+        search_end_ts = df.index[mark_end_pos] + pd.Timedelta(hours=search_hours)
+        search_end_pos = min(df.index.searchsorted(search_end_ts), n) - 1
+        if search_end_pos <= mark_end_pos:
+            continue
+        yield df.index[mark_start_pos], mark_start_pos, mark_end_pos, search_end_pos
+
+
+def generate_trades_4h_candle(
+    df: pd.DataFrame, cfg: SimpleORBConfig, regime: Optional[pd.Series] = None, search_hours: float = 4.0
+) -> pd.DataFrame:
+    """Variante de `generate_trades_simple` con `range_source="4h_candle"`:
+    la cadencia es cada 4h (no una vez al día), así que no encaja en el
+    loop diario -- se reutiliza `_try_build_trade` para no duplicar la
+    lógica de entrada/SL/TP/sizing. No soporta `trend_filter_enabled`
+    (no hay un "día anterior" bien definido cada 4h) ni
+    `volume_filter_enabled`."""
+    trades: list[Trade] = []
+    equity = cfg.starting_equity
+
+    for ref_time, mark_start_pos, mark_end_pos, search_end_pos in _iter_4h_candle_occurrences(df, search_hours):
+        level_slice = df.iloc[mark_start_pos:mark_end_pos]
+        if level_slice.empty:
+            continue
+        or_high = float(level_slice["high"].max())
+        or_low = float(level_slice["low"].min())
+        if or_high <= or_low:
+            continue
+        poc_ref = _session_poc(level_slice, n_bins=cfg.poc_bins) if cfg.tp_mode == "poc" else None
+
+        trade, _ = _try_build_trade(
+            # fecha calendario (no el timestamp completo de la vela de 4h) -- `run_backtest_simple`
+            # agrupa el pnl por `trades["date"] `vs `df.index.date` para construir la curva de
+            # equity diaria; si quedara el timestamp completo nunca calzaría con esas fechas y la
+            # curva quedaría plana (Sortino/Sharpe/drawdown en 0 -- bug real, visto en los datos).
+            df, ref_time.date(), or_high, or_low, mark_end_pos, search_end_pos, cfg, equity,
+            trend_by_date=None, poc_ref=poc_ref, regime=regime,
+        )
+        if trade is None:
+            continue
+        trades.append(trade)
+        equity += trade.pnl
+
+    return pd.DataFrame([dataclasses.asdict(t) for t in trades])
+
+
+def run_backtest_simple(
+    df: pd.DataFrame, cfg: SimpleORBConfig, regime: Optional[pd.Series] = None
+) -> tuple[pd.DataFrame, pd.Series]:
+    """Igual que `src.backtest.run_backtest` pero para la variante sin CVD.
+
+    `regime`: Series de -1/0/1 (ver `src/market_regime.py`). Debe estar
+    indexada por los MISMOS timestamps que `df` tenía al calcularse (antes
+    de cualquier restricción de sesión); aquí se realinea con `.reindex`
+    a los timestamps que sobrevivan la restricción, así que no hace falta
+    pasarla ya recortada.
+
+    `cfg.range_source == "4h_candle"` necesita datos de 24h (NQ) -- con
+    `session_only=True` (el default) la restricción a horario NY cortaría
+    las velas de 4h por la mitad, así que para esa variante usa un `cfg`
+    con `session_only=False`.
+    """
     if cfg.session_only:
         df = restrict_to_session(df, cfg.session_open, cfg.session_close)
 
-    trades = generate_trades_simple(df, cfg)
+    if regime is not None:
+        regime = regime.reindex(df.index)
+
+    if cfg.range_source == "4h_candle":
+        trades = generate_trades_4h_candle(df, cfg, regime=regime)
+    else:
+        trades = generate_trades_simple(df, cfg, regime=regime)
 
     all_dates = pd.Index(sorted(set(df.index.date)))
     equity = cfg.starting_equity

@@ -20,6 +20,25 @@ def test_load_csv_dedupes_close_and_adj_close():
     assert df["close"].tolist() == [100.5, 101.5]
 
 
+def test_load_csv_handles_rows_with_mixed_utc_offsets_across_a_dst_change():
+    """Regresión: un CSV que cruza un cambio de horario (EDT -> EST) trae
+    un offset distinto por fila ("-04:00" en verano, "-05:00" en invierno)
+    -- pandas ya no los deja mezclar sin utc=True (ValueError: Mixed
+    timezones detected), rompiendo load_csv en cualquier archivo que
+    cruce esa fecha (ej. el cambio de horario de noviembre)."""
+    csv_text = (
+        "Datetime,Open,High,Low,Close,Volume\n"
+        "2026-10-30 09:30:00-04:00,100,101,99,100.5,1000\n"  # EDT, antes del cambio (1 nov 2026)
+        "2026-11-03 09:30:00-05:00,100.5,102,100,101.5,2000\n"  # EST, después del cambio
+    )
+    df = load_csv(io.StringIO(csv_text))
+    assert len(df) == 2
+    assert str(df.index.tz) == "America/New_York"
+    # ambas filas deben quedar a las 09:30 hora de NY (el cambio de horario
+    # ya está resuelto correctamente, no corrido por el offset crudo)
+    assert list(df.index.strftime("%H:%M")) == ["09:30", "09:30"]
+
+
 def test_fix_yahoo_zero_open_volume_replaces_first_bar_of_day():
     idx = pd.date_range("2026-01-02 09:30", periods=4, freq="5min", tz="America/New_York").append(
         pd.date_range("2026-01-05 09:30", periods=4, freq="5min", tz="America/New_York")
